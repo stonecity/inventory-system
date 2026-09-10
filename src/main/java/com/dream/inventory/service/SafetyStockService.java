@@ -53,6 +53,22 @@ public class SafetyStockService {
         return toVO(ruleRepository.save(rule));
     }
 
+    @Transactional(rollbackFor = Exception.class)
+    public int importRules(java.util.List<SafetyStockCreateRequest> items) {
+        int n = 0;
+        for (SafetyStockCreateRequest item : items) {
+            Long whId = item.getWarehouseId() != null ? item.getWarehouseId() : 0L;
+            var existing = ruleRepository.findBySkuIdAndWarehouseId(item.getSkuId(), whId);
+            if (existing.isPresent()) {
+                update(existing.get().getId(), item);
+            } else {
+                create(item);
+            }
+            n++;
+        }
+        return n;
+    }
+
     private SafetyStockVO toVO(SafetyStockRule r) {
         return SafetyStockVO.builder()
                 .id(r.getId()).skuId(r.getSkuId()).warehouseId(r.getWarehouseId())

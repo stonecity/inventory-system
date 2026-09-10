@@ -9,18 +9,13 @@
   <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
   <script src="https://unpkg.com/element-plus"></script>
   <script src="/js/auth.js"></script>
-  <script>tailwind.config = { theme: { extend: { colors: { brand: { 600: '#2563eb' } } } } }</script>
+  <script src="/js/nav.js"></script>
 </head>
 <body class="bg-slate-50">
 <div id="app" class="flex min-h-screen">
   <aside class="w-64 bg-slate-900 text-white flex flex-col shrink-0">
     <div class="px-6 py-5 border-b border-slate-700"><h1 class="text-lg font-bold">IMS 库存管理</h1></div>
-    <nav class="flex-1 px-3 py-4 space-y-1">
-      <a href="index.html" class="nav-link">🏠 首页</a>
-      <a href="categories.html" class="nav-link">🗂️ 商品分类</a>
-      <a href="skus.html" class="nav-link">📦 商品 SKU</a>
-      <a href="warehouses.html" class="nav-link active">🏭 仓库管理</a>
-    </nav>
+    <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto" v-html="navHtml"></nav>
     <div class="px-6 py-4 border-t border-slate-700 text-xs text-slate-400">{{ user?.realName }}</div>
   </aside>
 
@@ -152,6 +147,7 @@ const { createApp, ref, reactive, computed, onMounted } = Vue;
 createApp({
   setup() {
     const user = ref(ImsAuth.getUser());
+    const navHtml = computed(() => ImsNav.render('warehouses.html'));
     const canWrite = computed(() => ImsAuth.hasPermission('system:warehouse'));
     const loading = ref(false); const submitting = ref(false);
     const list = ref([]); const total = ref(0); const page = ref(1); const size = ref(20);
@@ -247,7 +243,7 @@ createApp({
     onMounted(() => { if (!ImsAuth.requireAuth()) return; user.value = ImsAuth.getUser(); loadList(); });
 
     return {
-      user, canWrite, loading, submitting, list, total, page, size, query, dialogVisible, isEdit, formRef, form, rules,
+      user, navHtml, canWrite, loading, submitting, list, total, page, size, query, dialogVisible, isEdit, formRef, form, rules,
       locDrawer, locLoading, batchLoading, currentWh, locations, batch,
       loadList, resetQuery, openCreate, openEdit, submitForm, toggleStatus,
       openLocations, batchCreate, setDefault, toggleLocStatus, ImsAuth

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>用户管理 - IMS</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://unpkg.com/element-plus"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/nav.js"></script>
+</head>
+<body class="bg-slate-50">
+<div id="app" class="flex min-h-screen">
+  <aside class="w-64 bg-slate-900 text-white flex flex-col shrink-0">
+    <div class="px-6 py-5 border-b border-slate-700"><h1 class="text-lg font-bold">IMS 库存管理</h1></div>
+    <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto" v-html="navHtml"></nav>
+  </aside>
+  <main class="flex-1 p-8">
+    <div class="flex justify-between mb-4"><h2 class="text-xl font-semibold">用户管理</h2><el-button type="primary" @click="openCreate">新增用户</el-button></div>
+    <el-table :data="list" stripe border>
+      <el-table-column prop="username" label="用户名" width="120" />
+      <el-table-column prop="realName" label="姓名" width="120" />
+      <el-table-column prop="phone" label="电话" width="140" />
+      <el-table-column label="角色"><template #default="{ row }">{{ (row.roleCodes||[]).join(', ') }}</template></el-table-column>
+      <el-table-column label="状态" width="80"><template #default="{ row }"><el-tag :type="row.status===1?'success':'info'" size="small">{{ row.status===1?'启用':'停用' }}</el-tag></template></el-table-column>
+      <el-table-column label="操作" width="280">
+        <template #default="{ row }">
+          <el-button size="small" @click="openEdit(row)">编辑</el-button>
+          <el-button size="small" @click="openRoles(row)">角色</el-button>
+          <el-button size="small" @click="openWh(row)">仓库范围</el-button>
+          <el-button size="small" @click="toggle(row)">{{ row.status===1?'停用':'启用' }}</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+    <el-dialog v-model="dlg" :title="isEdit?'编辑用户':'新增用户'" width="480px">
+      <el-form label-width="90px">
+        <el-form-item v-if="!isEdit" label="用户名"><el-input v-model="form.username" /></el-form-item>
+        <el-form-item label="姓名"><el-input v-model="form.realName" /></el-form-item>
+        <el-form-item label="密码"><el-input v-model="form.password" type="password" :placeholder="isEdit?'不改则留空':''" /></el-form-item>
+        <el-form-item label="电话"><el-input v-model="form.phone" /></el-form-item>
+        <el-form-item label="邮箱"><el-input v-model="form.email" /></el-form-item>
+        <el-form-item v-if="!isEdit" label="角色">
+          <el-select v-model="form.roleCodes" multiple class="w-full"><el-option v-for="r in roles" :key="r.code" :label="r.name" :value="r.code" /></el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer><el-button type="primary" @click="save">保存</el-button></template>
+    </el-dialog>
+  </main>
+</div>
+<style>.nav-link{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;font-size:14px;color:#cbd5e1}.nav-link.active{background:#2563eb;color:#fff}</style>
+<script>
+const { createApp, ref, computed, onMounted } = Vue;
+createApp({
+  setup() {
+    const navHtml = computed(() => ImsNav.render('users.html'));
+    const list = ref([]), roles = ref([]), warehouses = ref([]), dlg = ref(false), isEdit = ref(false), editId = ref(null);
+    const form = ref({});
+    async function load() { list.value = (await ImsAuth.api('/users?page=0&size=50')).items; }
+    function openCreate() { isEdit.value=false; form.value={ username:'', realName:'', password:'', phone:'', email:'', roleCodes:[] }; dlg.value=true; }
+    function openEdit(row) { isEdit.value=true; editId.value=row.id; form.value={ realName:row.realName, phone:row.phone, email:row.email, password:'' }; dlg.value=true; }
+    async function save() {
+      if (isEdit.value) await ImsAuth.api('/users/'+editId.value, { method:'PUT', body: JSON.stringify(form.value) });
+      else await ImsAuth.api('/users', { method:'POST', body: JSON.stringify(form.value) });
+      dlg.value=false; load();
+    }
+    async function openRoles(row) {
+      const { value } = await ElementPlus.ElMessageBox.prompt('角色编码，逗号分隔', '分配角色', { inputValue: (row.roleCodes||[]).join(',') });
+      await ImsAuth.api('/users/'+row.id+'/roles', { method:'PUT', body: JSON.stringify({ roleCodes: value.split(',').map(s=>s.trim()).filter(Boolean) }) });
+      load();
+    }
+    async function openWh(row) {
+      const { value } = await ElementPlus.ElMessageBox.prompt('仓库 ID，逗号分隔', '仓库范围', { inputValue: (row.warehouseIds||[]).join(',') });
+      const ids = value.split(',').map(s=>s.trim()).filter(Boolean).map(Number);
+      await ImsAuth.api('/users/'+row.id+'/warehouses', { method:'PUT', body: JSON.stringify({ warehouseIds: ids }) });
+      load();
+    }
+    async function toggle(row) {
+      await ImsAuth.api('/users/'+row.id+'/status', { method:'PUT', body: JSON.stringify({ status: row.status===1?0:1 }) });
+      load();
+    }
+    onMounted(async () => {
+      if (!ImsAuth.requireAuth()) return;
+      roles.value = await ImsAuth.api('/roles');
+      warehouses.value = (await ImsAuth.api('/warehouses?page=0&size=100')).items;
+      load();
+    });
+    return { navHtml, list, roles, dlg, isEdit, form, openCreate, openEdit, save, openRoles, openWh, toggle };
+  }
+}).use(ElementPlus).mount('#app');
+</script>
+</body>
+</html>

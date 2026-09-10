@@ -25,59 +25,123 @@
           <el-dropdown-menu>
             <el-dropdown-item command="PURCHASE_IN">采购入库</el-dropdown-item>
             <el-dropdown-item command="SALE_OUT">销售出库</el-dropdown-item>
-            <el-dropdown-item command="TRANSFER">调拨</el-dropdown-item>
+            <el-dropdown-item command="TRANSFER">仓间调拨</el-dropdown-item>
+            <el-dropdown-item command="SALE_RETURN">销售退货</el-dropdown-item>
+            <el-dropdown-item command="PURCHASE_RETURN">采购退货</el-dropdown-item>
+            <el-dropdown-item command="OTHER_IN">其他入库</el-dropdown-item>
+            <el-dropdown-item command="OTHER_OUT">其他出库</el-dropdown-item>
           </el-dropdown-menu>
         </template>
       </el-dropdown>
     </div>
-    <div class="bg-white rounded-xl border p-4 mb-4 flex gap-3">
+    <div class="bg-white rounded-xl border p-4 mb-4 flex gap-3 flex-wrap">
       <el-select v-model="query.type" placeholder="类型" clearable style="width:140px">
-        <el-option label="采购入库" value="PURCHASE_IN" /><el-option label="销售出库" value="SALE_OUT" /><el-option label="调拨" value="TRANSFER" />
+        <el-option v-for="t in types" :key="t.v" :label="t.l" :value="t.v" />
       </el-select>
-      <el-select v-model="query.status" placeholder="状态" clearable style="width:140px">
-        <el-option label="草稿" value="DRAFT" /><el-option label="待审核" value="PENDING_APPROVAL" /><el-option label="已预留" value="RESERVED" /><el-option label="已完成" value="COMPLETED" /><el-option label="已出库" value="SHIPPED" />
+      <el-select v-model="query.status" placeholder="状态" clearable style="width:150px">
+        <el-option v-for="s in statuses" :key="s" :label="s" :value="s" />
       </el-select>
       <el-button type="primary" @click="load">查询</el-button>
     </div>
     <el-table :data="list" v-loading="loading" stripe border>
       <el-table-column prop="movementNo" label="单号" width="180" />
-      <el-table-column prop="type" label="类型" width="110" />
-      <el-table-column prop="status" label="状态" width="130" />
+      <el-table-column prop="type" label="类型" width="130" />
+      <el-table-column prop="status" label="状态" width="150" />
       <el-table-column prop="totalQty" label="数量" width="80" />
       <el-table-column prop="warehouseId" label="仓库" width="80" />
-      <el-table-column label="操作" min-width="280">
+      <el-table-column label="操作" min-width="360">
         <template #default="{ row }">
           <el-button size="small" @click="showDetail(row)">详情</el-button>
-          <el-button size="small" v-if="row.status==='DRAFT'" @click="doSubmit(row)">提交</el-button>
+          <el-button size="small" v-if="['DRAFT','REJECTED','RESERVE_FAILED'].includes(row.status)" @click="doSubmit(row)">提交</el-button>
           <el-button size="small" v-if="['PENDING_APPROVAL','RESERVED'].includes(row.status)" @click="doApprove(row)">审核</el-button>
-          <el-button size="small" v-if="row.status==='APPROVED' && row.type==='PURCHASE_IN'" @click="doReceive(row)">验货入库</el-button>
+          <el-button size="small" v-if="['PENDING_APPROVAL','RESERVED'].includes(row.status)" @click="doReject(row)">驳回</el-button>
+          <el-button size="small" v-if="row.status==='APPROVED' && ['PURCHASE_IN','SALE_RETURN','OTHER_IN'].includes(row.type)" @click="doReceive(row)">验货入库</el-button>
           <el-button size="small" v-if="row.status==='APPROVED' && row.type==='SALE_OUT'" @click="doPick(row)">拣货</el-button>
           <el-button size="small" v-if="row.status==='PICKING'" @click="doShip(row)">确认出库</el-button>
+          <el-button size="small" v-if="row.status==='APPROVED' && ['PURCHASE_RETURN','OTHER_OUT'].includes(row.type)" @click="doShip(row)">确认出库</el-button>
+          <el-button size="small" v-if="row.status==='APPROVED' && row.type==='TRANSFER'" @click="doTransferOut(row)">调出</el-button>
+          <el-button size="small" v-if="row.status==='IN_TRANSIT'" @click="doTransferIn(row)">调入</el-button>
+          <el-button size="small" v-if="row.status==='SHIPPED' && row.type==='SALE_OUT'" @click="openReturn(row,'SALE_RETURN')">退货</el-button>
+          <el-button size="small" v-if="row.status==='COMPLETED' && row.type==='PURCHASE_IN'" @click="openReturn(row,'PURCHASE_RETURN')">退货</el-button>
+          <el-button size="small" v-if="!['SHIPPED','COMPLETED','CANCELLED','PARTIALLY_COMPLETED'].includes(row.status)" @click="doCancel(row)">取消</el-button>
         </template>
       </el-table-column>
     </el-table>
-    <el-dialog v-model="dlgVisible" title="新建单据" width="640px">
+
+    <el-dialog v-model="dlgVisible" :title="'新建 ' + createType" width="720px">
       <el-form label-width="100px">
-        <el-form-item label="源仓库"><el-select v-model="form.warehouseId" filterable class="w-full"><el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" /></el-select></el-form-item>
-        <el-form-item v-if="createType==='TRANSFER'" label="目标仓库"><el-select v-model="form.toWarehouseId" filterable class="w-full"><el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" /></el-select></el-form-item>
-        <el-form-item v-if="createType==='PURCHASE_IN'" label="供应商"><el-select v-model="form.partnerId" filterable class="w-full"><el-option v-for="s in suppliers" :key="s.id" :label="s.name" :value="s.id" /></el-select></el-form-item>
-        <el-form-item v-if="createType==='SALE_OUT'" label="客户"><el-select v-model="form.partnerId" filterable class="w-full"><el-option v-for="c in customers" :key="c.id" :label="c.name" :value="c.id" /></el-select></el-form-item>
-        <el-form-item label="SKU"><el-select v-model="form.skuId" filterable class="w-full"><el-option v-for="s in skus" :key="s.id" :label="s.skuCode" :value="s.id" /></el-select></el-form-item>
-        <el-form-item label="数量"><el-input-number v-model="form.qty" :min="1" /></el-form-item>
+        <el-form-item label="源仓库">
+          <el-select v-model="form.warehouseId" filterable class="w-full"><el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" /></el-select>
+        </el-form-item>
+        <el-form-item v-if="createType==='TRANSFER'" label="目标仓库">
+          <el-select v-model="form.toWarehouseId" filterable class="w-full"><el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" /></el-select>
+        </el-form-item>
+        <el-form-item v-if="['PURCHASE_IN','PURCHASE_RETURN'].includes(createType)" label="供应商">
+          <el-select v-model="form.partnerId" filterable class="w-full"><el-option v-for="s in suppliers" :key="s.id" :label="s.name" :value="s.id" /></el-select>
+        </el-form-item>
+        <el-form-item v-if="['SALE_OUT','SALE_RETURN'].includes(createType)" label="客户">
+          <el-select v-model="form.partnerId" filterable class="w-full"><el-option v-for="c in customers" :key="c.id" :label="c.name" :value="c.id" /></el-select>
+        </el-form-item>
+        <el-form-item v-if="form.refMovementId" label="原单">{{ form.refMovementId }}</el-form-item>
+        <el-form-item label="明细">
+          <div class="w-full space-y-2">
+            <div v-for="(it, idx) in form.items" :key="idx" class="flex gap-2">
+              <el-select v-model="it.skuId" filterable placeholder="SKU" class="flex-1">
+                <el-option v-for="s in skus" :key="s.id" :label="s.skuCode" :value="s.id" />
+              </el-select>
+              <el-input-number v-model="it.plannedQty" :min="1" />
+              <el-button @click="form.items.splice(idx,1)">删</el-button>
+            </div>
+            <el-button size="small" @click="form.items.push({ skuId:null, plannedQty:1 })">+ 添加行</el-button>
+          </div>
+        </el-form-item>
       </el-form>
-      <template #footer><el-button @click="dlgVisible=false">取消</el-button><el-button type="primary" @click="saveCreate">保存</el-button></template>
+      <template #footer><el-button @click="dlgVisible=false">取消</el-button><el-button type="primary" :loading="saving" @click="saveCreate">保存</el-button></template>
     </el-dialog>
+
+    <el-drawer v-model="detailVisible" title="单据详情" size="640px">
+      <div v-if="detail">
+        <p class="mb-2">单号 {{ detail.movementNo }} / {{ detail.type }} / {{ detail.status }}</p>
+        <el-table :data="detail.items" border size="small">
+          <el-table-column prop="skuCode" label="SKU" />
+          <el-table-column prop="plannedQty" label="计划" width="70" />
+          <el-table-column prop="actualQty" label="实际" width="70" />
+          <el-table-column prop="returnedQty" label="已退" width="70" />
+        </el-table>
+        <div class="mt-4 flex gap-2">
+          <el-button @click="printDoc">打印</el-button>
+        </div>
+        <el-table class="mt-4" :data="detailLogs" size="small" border>
+          <el-table-column prop="changeType" label="类型" width="110" />
+          <el-table-column prop="deltaQty" label="变动" width="70" />
+          <el-table-column prop="operatedAt" label="时间" />
+        </el-table>
+      </div>
+    </el-drawer>
   </main>
 </div>
 <style>.nav-link{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;font-size:14px;color:#cbd5e1}.nav-link.active{background:#2563eb;color:#fff}</style>
 <script>
 const { createApp, ref, computed, onMounted } = Vue;
-const EP = { PURCHASE_IN:'/movements/purchase-in', SALE_OUT:'/movements/sale-out', TRANSFER:'/movements/transfer' };
+const EP = {
+  PURCHASE_IN:'/movements/purchase-in', SALE_OUT:'/movements/sale-out', TRANSFER:'/movements/transfer',
+  SALE_RETURN:'/movements/sale-return', PURCHASE_RETURN:'/movements/purchase-return',
+  OTHER_IN:'/movements/other-in', OTHER_OUT:'/movements/other-out'
+};
 createApp({
   setup() {
     const navHtml = computed(() => ImsNav.render('movements.html'));
-    const list = ref([]), loading = ref(false), query = ref({}), warehouses = ref([]), skus = ref([]), suppliers = ref([]), customers = ref([]);
-    const dlgVisible = ref(false), createType = ref('PURCHASE_IN'), form = ref({ warehouseId:null, toWarehouseId:null, partnerId:null, skuId:null, qty:1 });
+    const list = ref([]), loading = ref(false), saving = ref(false);
+    const query = ref({});
+    const warehouses = ref([]), skus = ref([]), suppliers = ref([]), customers = ref([]);
+    const dlgVisible = ref(false), createType = ref('PURCHASE_IN');
+    const form = ref({ warehouseId:null, toWarehouseId:null, partnerId:null, refMovementId:null, items:[{ skuId:null, plannedQty:1 }] });
+    const detailVisible = ref(false), detail = ref(null), detailLogs = ref([]);
+    const types = [
+      {v:'PURCHASE_IN',l:'采购入库'},{v:'SALE_OUT',l:'销售出库'},{v:'TRANSFER',l:'调拨'},
+      {v:'SALE_RETURN',l:'销售退货'},{v:'PURCHASE_RETURN',l:'采购退货'},{v:'OTHER_IN',l:'其他入库'},{v:'OTHER_OUT',l:'其他出库'},{v:'ADJUST',l:'盘点调整'}
+    ];
+    const statuses = ['DRAFT','PENDING_APPROVAL','RESERVED','RESERVE_FAILED','APPROVED','RECEIVING','PICKING','IN_TRANSIT','SHIPPED','COMPLETED','CANCELLED','REJECTED'];
     async function load() {
       loading.value = true;
       try {
@@ -87,30 +151,75 @@ createApp({
         list.value = (await ImsAuth.api('/movements?' + q)).items;
       } finally { loading.value = false; }
     }
-    function openCreate(type) { createType.value = type; dlgVisible.value = true; }
+    function openCreate(type) {
+      createType.value = type;
+      form.value = { warehouseId:null, toWarehouseId:null, partnerId:null, refMovementId:null, items:[{ skuId:null, plannedQty:1 }] };
+      dlgVisible.value = true;
+    }
+    function openReturn(row, type) {
+      createType.value = type;
+      form.value = {
+        warehouseId: row.warehouseId, partnerId: row.partnerId, refMovementId: row.id,
+        items: (row.items || []).map(i => ({ skuId: i.skuId, plannedQty: Math.max((i.actualQty||i.plannedQty) - (i.returnedQty||0), 1) }))
+      };
+      dlgVisible.value = true;
+    }
     async function saveCreate() {
-      const body = { warehouseId: form.value.warehouseId, toWarehouseId: form.value.toWarehouseId, partnerId: form.value.partnerId,
-        items: [{ skuId: form.value.skuId, plannedQty: form.value.qty }] };
-      await ImsAuth.api(EP[createType.value], { method:'POST', body: JSON.stringify(body) });
-      dlgVisible.value = false; load();
-      ElementPlus.ElMessage.success('创建成功');
+      saving.value = true;
+      try {
+        const body = {
+          warehouseId: form.value.warehouseId, toWarehouseId: form.value.toWarehouseId,
+          partnerId: form.value.partnerId, refMovementId: form.value.refMovementId,
+          items: form.value.items.filter(i => i.skuId)
+        };
+        await ImsAuth.api(EP[createType.value], { method:'POST', body: JSON.stringify(body) });
+        dlgVisible.value = false; load();
+        ElementPlus.ElMessage.success('创建成功');
+      } catch (e) { ElementPlus.ElMessage.error(e.message); }
+      finally { saving.value = false; }
     }
-    async function doSubmit(row) { await ImsAuth.api(`/movements/${row.id}/submit`, { method:'POST', body: JSON.stringify({ version: row.version }) }); load(); }
-    async function doApprove(row) { await ImsAuth.api(`/movements/${row.id}/approve`, { method:'POST', body: JSON.stringify({ version: row.version }) }); load(); }
-    async function doPick(row) { await ImsAuth.api(`/movements/${row.id}/pick`, { method:'POST', body: JSON.stringify({ version: row.version }) }); load(); }
-    async function doReceive(row) {
-      const detail = await ImsAuth.api(`/movements/${row.id}`);
-      const items = detail.items.map(i => ({ itemId: i.id, actualQty: i.plannedQty }));
-      await ImsAuth.api(`/movements/${row.id}/receive`, { method:'POST', body: JSON.stringify({ version: detail.version, items }) });
+    async function post(path, row, extra) {
+      try {
+        await ImsAuth.api(`/movements/${row.id}${path}`, { method:'POST', body: JSON.stringify(Object.assign({ version: row.version }, extra||{})) });
+        load();
+      } catch (e) {
+        if (e.code === 42201 && e.data) {
+          ElementPlus.ElMessage.error('库存不足: ' + JSON.stringify(e.data));
+        } else ElementPlus.ElMessage.error(e.message);
+      }
+    }
+    function doSubmit(row) { post('/submit', row); }
+    function doApprove(row) { post('/approve', row); }
+    async function doReject(row) {
+      const { value } = await ElementPlus.ElMessageBox.prompt('驳回原因', '驳回');
+      post('/reject', row, { reason: value });
+    }
+    async function execItems(path, row) {
+      const d = await ImsAuth.api(`/movements/${row.id}`);
+      const items = d.items.map(i => ({ itemId: i.id, actualQty: i.plannedQty }));
+      await ImsAuth.api(`/movements/${row.id}${path}`, { method:'POST', body: JSON.stringify({ version: d.version, items }) });
       load();
     }
-    async function doShip(row) {
-      const detail = await ImsAuth.api(`/movements/${row.id}`);
-      const items = detail.items.map(i => ({ itemId: i.id, actualQty: i.plannedQty }));
-      await ImsAuth.api(`/movements/${row.id}/ship`, { method:'POST', body: JSON.stringify({ version: detail.version, items }) });
-      load();
+    function doReceive(row) { execItems('/receive', row); }
+    function doPick(row) { post('/pick', row); }
+    function doShip(row) { execItems('/ship', row); }
+    function doTransferOut(row) { execItems('/transfer-out', row); }
+    function doTransferIn(row) { execItems('/transfer-in', row); }
+    async function doCancel(row) {
+      const { value } = await ElementPlus.ElMessageBox.prompt('取消原因', '取消');
+      post('/cancel', row, { reason: value });
     }
-    function showDetail(row) { ElementPlus.ElMessage.info('单号: ' + row.movementNo + ' 状态: ' + row.status); }
+    async function showDetail(row) {
+      detail.value = await ImsAuth.api(`/movements/${row.id}`);
+      try { detailLogs.value = await ImsAuth.api(`/movements/${row.id}/logs`); } catch(e) { detailLogs.value = []; }
+      detailVisible.value = true;
+    }
+    async function printDoc() {
+      const p = await ImsAuth.api(`/movements/${detail.value.id}/print`);
+      const w = window.open('', '_blank');
+      w.document.write(`<h2>${p.movement.movementNo}</h2><p>${p.warehouseName} ${p.partnerName||''}</p><table border="1" cellpadding="6"><tr><th>SKU</th><th>计划</th><th>实际</th></tr>${p.items.map(i=>`<tr><td>${i.skuCode}</td><td>${i.plannedQty}</td><td>${i.actualQty||''}</td></tr>`).join('')}</table>`);
+      w.print();
+    }
     onMounted(async () => {
       if (!ImsAuth.requireAuth()) return;
       warehouses.value = (await ImsAuth.api('/warehouses?page=0&size=100')).items;
@@ -118,8 +227,13 @@ createApp({
       suppliers.value = (await ImsAuth.api('/suppliers?page=0&size=100')).items;
       customers.value = (await ImsAuth.api('/customers?page=0&size=100')).items;
       load();
+      const id = new URLSearchParams(location.search).get('id');
+      if (id) showDetail({ id });
     });
-    return { navHtml, list, loading, query, load, dlgVisible, createType, form, warehouses, skus, suppliers, customers, openCreate, saveCreate, doSubmit, doApprove, doReceive, doPick, doShip, showDetail };
+    return { navHtml, list, loading, query, warehouses, skus, suppliers, customers, types, statuses,
+      dlgVisible, createType, form, saving, detailVisible, detail, detailLogs,
+      load, openCreate, openReturn, saveCreate, doSubmit, doApprove, doReject, doReceive, doPick, doShip,
+      doTransferOut, doTransferIn, doCancel, showDetail, printDoc };
   }
 }).use(ElementPlus).mount('#app');
 </script>

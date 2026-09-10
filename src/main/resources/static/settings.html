@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>系统设置 - IMS</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://unpkg.com/element-plus"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/nav.js"></script>
+</head>
+<body class="bg-slate-50">
+<div id="app" class="flex min-h-screen">
+  <aside class="w-64 bg-slate-900 text-white flex flex-col shrink-0">
+    <div class="px-6 py-5 border-b border-slate-700"><h1 class="text-lg font-bold">IMS 库存管理</h1></div>
+    <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto" v-html="navHtml"></nav>
+  </aside>
+  <main class="flex-1 p-8">
+    <h2 class="text-xl font-semibold mb-4">系统设置</h2>
+    <el-tabs>
+      <el-tab-pane label="参数">
+        <el-form label-width="180px" class="max-w-lg bg-white p-6 rounded-xl border">
+          <el-form-item v-for="(v,k) in settings" :key="k" :label="k">
+            <el-input v-model="settings[k]" />
+          </el-form-item>
+          <el-button type="primary" @click="save">保存</el-button>
+        </el-form>
+      </el-tab-pane>
+      <el-tab-pane label="审计日志">
+        <el-table :data="audits" border>
+          <el-table-column prop="createdAt" label="时间" width="180" />
+          <el-table-column prop="userId" label="用户" width="80" />
+          <el-table-column prop="action" label="动作" width="160" />
+          <el-table-column prop="resourceType" label="资源" width="140" />
+          <el-table-column prop="resourceId" label="资源ID" width="100" />
+        </el-table>
+      </el-tab-pane>
+    </el-tabs>
+  </main>
+</div>
+<style>.nav-link{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;font-size:14px;color:#cbd5e1}.nav-link.active{background:#2563eb;color:#fff}</style>
+<script>
+const { createApp, ref, computed, reactive, onMounted } = Vue;
+createApp({
+  setup() {
+    const navHtml = computed(() => ImsNav.render('settings.html'));
+    const settings = reactive({});
+    const audits = ref([]);
+    async function load() {
+      const s = await ImsAuth.api('/settings');
+      Object.keys(settings).forEach(k => delete settings[k]);
+      Object.assign(settings, s);
+      audits.value = (await ImsAuth.api('/audit-logs?page=0&size=50')).items;
+    }
+    async function save() {
+      await ImsAuth.api('/settings', { method:'PUT', body: JSON.stringify({ ...settings }) });
+      ElementPlus.ElMessage.success('已保存');
+    }
+    onMounted(() => { if (ImsAuth.requireAuth()) load(); });
+    return { navHtml, settings, audits, save };
+  }
+}).use(ElementPlus).mount('#app');
+</script>
+</body>
+</html>

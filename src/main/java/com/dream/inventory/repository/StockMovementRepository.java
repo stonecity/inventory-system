@@ -52,4 +52,18 @@ public interface StockMovementRepository extends JpaRepository<StockMovement, Lo
                      @Param("version") Integer version);
 
     long countByStatus(MovementStatus status);
+
+    @Query("""
+            SELECT m.type, m.warehouseId, COUNT(m), COALESCE(SUM(m.totalQty), 0), COALESCE(SUM(m.totalAmount), 0)
+              FROM StockMovement m
+             WHERE m.status IN :statuses
+               AND (:from IS NULL OR m.createdAt >= :from)
+               AND (:to IS NULL OR m.createdAt <= :to)
+               AND (:warehouseId IS NULL OR m.warehouseId = :warehouseId)
+             GROUP BY m.type, m.warehouseId
+            """)
+    List<Object[]> summarize(@Param("from") Instant from,
+                             @Param("to") Instant to,
+                             @Param("warehouseId") Long warehouseId,
+                             @Param("statuses") Collection<MovementStatus> statuses);
 }

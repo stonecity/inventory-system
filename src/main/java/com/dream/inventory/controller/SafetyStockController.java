@@ -36,4 +36,10 @@ public class SafetyStockController {
     public Result<SafetyStockVO> update(@PathVariable Long id, @Valid @RequestBody SafetyStockCreateRequest req) {
         return Result.ok(safetyStockService.update(id, req));
     }
+
+    @PostMapping("/import")
+    @PreAuthorize("hasAuthority('safety-stock:write')")
+    public Result<Integer> importRules(@Valid @RequestBody java.util.List<SafetyStockCreateRequest> items) {
+        return Result.ok(safetyStockService.importRules(items));
+    }
 }

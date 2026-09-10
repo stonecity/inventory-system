@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>报表中心 - IMS</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://unpkg.com/element-plus"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/nav.js"></script>
+</head>
+<body class="bg-slate-50">
+<div id="app" class="flex min-h-screen">
+  <aside class="w-64 bg-slate-900 text-white flex flex-col shrink-0">
+    <div class="px-6 py-5 border-b border-slate-700"><h1 class="text-lg font-bold">IMS 库存管理</h1></div>
+    <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto" v-html="navHtml"></nav>
+  </aside>
+  <main class="flex-1 p-8">
+    <h2 class="text-xl font-semibold mb-4">报表中心</h2>
+    <el-tabs>
+      <el-tab-pane label="出入库汇总">
+        <div class="mb-3 flex gap-3">
+          <el-select v-model="wh" placeholder="仓库" clearable style="width:180px">
+            <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
+          </el-select>
+          <el-button type="primary" @click="loadSummary">查询</el-button>
+        </div>
+        <el-table :data="summary" border>
+          <el-table-column prop="type" label="类型" />
+          <el-table-column prop="warehouseName" label="仓库" />
+          <el-table-column prop="orderCount" label="单数" width="80" />
+          <el-table-column prop="totalQty" label="数量" width="80" />
+          <el-table-column prop="totalAmount" label="金额" width="120" />
+        </el-table>
+      </el-tab-pane>
+      <el-tab-pane label="库龄分析">
+        <el-button class="mb-3" type="primary" @click="loadAge">刷新</el-button>
+        <el-table :data="ages" border>
+          <el-table-column prop="skuCode" label="SKU" />
+          <el-table-column prop="warehouseName" label="仓库" />
+          <el-table-column prop="onHandQty" label="在库" width="80" />
+          <el-table-column prop="ageDays" label="库龄(天)" width="100" />
+          <el-table-column prop="lastInboundAt" label="最近入库" />
+        </el-table>
+      </el-tab-pane>
+    </el-tabs>
+  </main>
+</div>
+<style>.nav-link{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;font-size:14px;color:#cbd5e1}.nav-link.active{background:#2563eb;color:#fff}</style>
+<script>
+const { createApp, ref, computed, onMounted } = Vue;
+createApp({
+  setup() {
+    const navHtml = computed(() => ImsNav.render('reports.html'));
+    const warehouses = ref([]), wh = ref(null), summary = ref([]), ages = ref([]);
+    async function loadSummary() {
+      const q = new URLSearchParams();
+      if (wh.value) q.set('warehouseId', wh.value);
+      summary.value = await ImsAuth.api('/reports/movement-summary?' + q);
+    }
+    async function loadAge() {
+      const q = new URLSearchParams();
+      if (wh.value) q.set('warehouseId', wh.value);
+      ages.value = await ImsAuth.api('/reports/stock-age?' + q);
+    }
+    onMounted(async () => {
+      if (!ImsAuth.requireAuth()) return;
+      warehouses.value = (await ImsAuth.api('/warehouses?page=0&size=100')).items;
+      loadSummary(); loadAge();
+    });
+    return { navHtml, warehouses, wh, summary, ages, loadSummary, loadAge };
+  }
+}).use(ElementPlus).mount('#app');
+</script>
+</body>
+</html>

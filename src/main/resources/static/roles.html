@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>角色权限 - IMS</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://unpkg.com/element-plus"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/nav.js"></script>
+</head>
+<body class="bg-slate-50">
+<div id="app" class="flex min-h-screen">
+  <aside class="w-64 bg-slate-900 text-white flex flex-col shrink-0">
+    <div class="px-6 py-5 border-b border-slate-700"><h1 class="text-lg font-bold">IMS 库存管理</h1></div>
+    <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto" v-html="navHtml"></nav>
+  </aside>
+  <main class="flex-1 p-8">
+    <div class="flex justify-between mb-4"><h2 class="text-xl font-semibold">角色权限</h2><el-button type="primary" @click="createDlg=true">新建角色</el-button></div>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <el-table :data="roles" highlight-current-row @current-change="selectRole" border>
+        <el-table-column prop="code" label="编码" />
+        <el-table-column prop="name" label="名称" />
+      </el-table>
+      <div class="bg-white border rounded-xl p-4" v-if="current">
+        <h3 class="font-semibold mb-3">{{ current.name }} 权限</h3>
+        <el-checkbox-group v-model="checked">
+          <div v-for="p in permissions" :key="p.code" class="mb-1"><el-checkbox :label="p.code">{{ p.name }} ({{ p.code }})</el-checkbox></div>
+        </el-checkbox-group>
+        <el-button class="mt-4" type="primary" @click="savePerms">保存权限</el-button>
+      </div>
+    </div>
+    <el-dialog v-model="createDlg" title="新建角色" width="420px">
+      <el-form label-width="80px">
+        <el-form-item label="编码"><el-input v-model="newRole.code" placeholder="ROLE_XXX" /></el-form-item>
+        <el-form-item label="名称"><el-input v-model="newRole.name" /></el-form-item>
+        <el-form-item label="描述"><el-input v-model="newRole.description" /></el-form-item>
+      </el-form>
+      <template #footer><el-button type="primary" @click="createRole">创建</el-button></template>
+    </el-dialog>
+  </main>
+</div>
+<style>.nav-link{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;font-size:14px;color:#cbd5e1}.nav-link.active{background:#2563eb;color:#fff}</style>
+<script>
+const { createApp, ref, computed, onMounted } = Vue;
+createApp({
+  setup() {
+    const navHtml = computed(() => ImsNav.render('roles.html'));
+    const roles = ref([]), permissions = ref([]), current = ref(null), checked = ref([]), createDlg = ref(false);
+    const newRole = ref({ code:'', name:'', description:'' });
+    async function load() { roles.value = await ImsAuth.api('/roles'); permissions.value = await ImsAuth.api('/permissions'); }
+    function selectRole(row) { current.value = row; checked.value = [...(row.permissionCodes||[])]; }
+    async function savePerms() {
+      await ImsAuth.api('/roles/'+current.value.id+'/permissions', { method:'PUT', body: JSON.stringify({ permissionCodes: checked.value }) });
+      ElementPlus.ElMessage.success('已保存'); load();
+    }
+    async function createRole() {
+      await ImsAuth.api('/roles', { method:'POST', body: JSON.stringify(newRole.value) });
+      createDlg.value=false; load();
+    }
+    onMounted(() => { if (ImsAuth.requireAuth()) load(); });
+    return { navHtml, roles, permissions, current, checked, createDlg, newRole, selectRole, savePerms, createRole };
+  }
+}).use(ElementPlus).mount('#app');
+</script>
+</body>
+</html>

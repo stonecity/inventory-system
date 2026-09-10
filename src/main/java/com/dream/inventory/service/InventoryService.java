@@ -143,6 +143,33 @@ public class InventoryService {
                 (id, ver, q) -> inventoryRepository.decreaseAvailable(id, ver, q));
     }
 
+    @Transactional(rollbackFor = Exception.class)
+    public void lockForStocktake(Long inventoryId, Long stocktakeId) {
+        int rows = inventoryRepository.lockForStocktake(inventoryId, stocktakeId);
+        if (rows != 1) {
+            throw new BizException(ErrorCode.STOCKTAKE_SCOPE_OVERLAP, "部分库存已被其他盘点锁定");
+        }
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void unlockByStocktake(Long stocktakeId) {
+        inventoryRepository.unlockByStocktake(stocktakeId);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public Inventory unlockOne(Long inventoryId) {
+        Inventory inv = inventoryRepository.findById(inventoryId)
+                .orElseThrow(() -> new BizException(ErrorCode.NOT_FOUND, "库存记录不存在"));
+        if (inv.getLocked() == null || inv.getLocked() != 1) {
+            throw new BizException(ErrorCode.VALIDATION_ERROR, "该库存未锁定");
+        }
+        int rows = inventoryRepository.unlockOne(inventoryId);
+        if (rows != 1) {
+            throw new BizException(ErrorCode.STATE_CONFLICT, "解锁失败，请重试");
+        }
+        return inventoryRepository.findById(inventoryId).orElseThrow();
+    }
+
     @FunctionalInterface
     private interface InventoryUpdate {
         int apply(Long id, Integer version, int qty);

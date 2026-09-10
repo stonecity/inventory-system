@@ -18,25 +18,74 @@
   </aside>
   <main class="flex-1 p-8">
     <h2 class="text-xl font-semibold mb-4">实时库存</h2>
-    <div class="bg-white rounded-xl border p-4 mb-4 flex gap-3 flex-wrap">
-      <el-select v-model="query.warehouseId" placeholder="仓库" clearable filterable style="width:180px">
-        <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
-      </el-select>
-      <el-checkbox v-model="query.lowStockOnly">仅低库存</el-checkbox>
-      <el-button type="primary" @click="load">查询</el-button>
-    </div>
-    <el-table :data="list" v-loading="loading" stripe border>
-      <el-table-column prop="skuCode" label="SKU" width="140" />
-      <el-table-column prop="warehouseId" label="仓库ID" width="90" />
-      <el-table-column prop="onHandQty" label="在库" width="80" />
-      <el-table-column prop="reservedQty" label="预留" width="80" />
-      <el-table-column prop="availableQty" label="可用" width="80" />
-      <el-table-column prop="inTransitQty" label="在途" width="80" />
-      <el-table-column label="锁定" width="70">
-        <template #default="{ row }"><el-tag v-if="row.locked" type="warning" size="small">是</el-tag><span v-else>-</span></template>
-      </el-table-column>
-    </el-table>
-    <el-pagination class="mt-4" layout="total, prev, pager, next" :total="total" v-model:current-page="page" @current-change="load" />
+    <el-tabs v-model="tab">
+      <el-tab-pane label="库存查询" name="inv">
+        <div class="bg-white rounded-xl border p-4 mb-4 flex gap-3 flex-wrap items-center">
+          <el-select v-model="query.warehouseId" placeholder="仓库" clearable filterable style="width:180px">
+            <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
+          </el-select>
+          <el-input v-model="query.keyword" placeholder="SKU/条码" clearable style="width:180px" @keyup.enter="load" />
+          <el-checkbox v-model="query.lowStockOnly">仅低库存</el-checkbox>
+          <el-button type="primary" @click="load">查询</el-button>
+        </div>
+        <el-table :data="list" v-loading="loading" stripe border>
+          <el-table-column prop="skuCode" label="SKU" width="140" />
+          <el-table-column prop="warehouseName" label="仓库" width="120" />
+          <el-table-column prop="onHandQty" label="在库" width="80" />
+          <el-table-column prop="reservedQty" label="预留" width="80" />
+          <el-table-column prop="availableQty" label="可用" width="80" />
+          <el-table-column prop="inTransitQty" label="在途" width="80" />
+          <el-table-column label="锁定" width="70">
+            <template #default="{ row }"><el-tag v-if="row.locked" type="warning" size="small">是</el-tag><span v-else>-</span></template>
+          </el-table-column>
+          <el-table-column label="操作" width="160">
+            <template #default="{ row }">
+              <el-button size="small" @click="showSku(row)">分布</el-button>
+              <el-button size="small" type="warning" v-if="row.locked && canUnlock" @click="unlock(row)">临时解锁</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <el-pagination class="mt-4" layout="total, prev, pager, next" :total="total" v-model:current-page="page" @current-change="load" />
+      </el-tab-pane>
+      <el-tab-pane label="变动日志" name="logs">
+        <div class="bg-white rounded-xl border p-4 mb-4 flex gap-3 flex-wrap">
+          <el-select v-model="logQuery.warehouseId" placeholder="仓库" clearable filterable style="width:160px">
+            <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
+          </el-select>
+          <el-input v-model="logQuery.movementNo" placeholder="单据号" clearable style="width:180px" />
+          <el-select v-model="logQuery.changeType" placeholder="类型" clearable style="width:140px">
+            <el-option v-for="t in changeTypes" :key="t" :label="t" :value="t" />
+          </el-select>
+          <el-button type="primary" @click="loadLogs">查询</el-button>
+          <el-button @click="exportLogs">导出 CSV</el-button>
+        </div>
+        <el-table :data="logs" v-loading="logLoading" stripe border>
+          <el-table-column prop="operatedAt" label="时间" min-width="170" />
+          <el-table-column prop="skuCode" label="SKU" width="120" />
+          <el-table-column prop="changeType" label="类型" width="110" />
+          <el-table-column prop="deltaQty" label="变动" width="70" />
+          <el-table-column label="在库" width="110">
+            <template #default="{ row }">{{ row.onHandBefore }} → {{ row.onHandAfter }}</template>
+          </el-table-column>
+          <el-table-column prop="movementNo" label="单据号" width="180">
+            <template #default="{ row }">
+              <a v-if="row.movementId" :href="'movements.html?id=' + row.movementId" class="text-blue-600">{{ row.movementNo || row.movementId }}</a>
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="remark" label="备注" />
+        </el-table>
+        <el-pagination class="mt-4" layout="total, prev, pager, next" :total="logTotal" v-model:current-page="logPage" @current-change="loadLogs" />
+      </el-tab-pane>
+    </el-tabs>
+    <el-drawer v-model="skuDrawer" title="SKU 库存分布" size="480px">
+      <el-table :data="skuDist" border size="small">
+        <el-table-column prop="warehouseName" label="仓库" />
+        <el-table-column prop="onHandQty" label="在库" width="70" />
+        <el-table-column prop="availableQty" label="可用" width="70" />
+        <el-table-column prop="reservedQty" label="预留" width="70" />
+      </el-table>
+    </el-drawer>
   </main>
 </div>
 <style>.nav-link{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;font-size:14px;color:#cbd5e1}.nav-link.active{background:#2563eb;color:#fff}</style>
@@ -45,24 +94,63 @@ const { createApp, ref, computed, onMounted } = Vue;
 createApp({
   setup() {
     const navHtml = computed(() => ImsNav.render('inventory.html'));
+    const tab = ref('inv');
+    const canUnlock = computed(() => ImsAuth.hasPermission('inventory:unlock'));
     const list = ref([]), warehouses = ref([]), loading = ref(false), total = ref(0), page = ref(1);
-    const query = ref({ warehouseId: null, lowStockOnly: false });
+    const query = ref({ warehouseId: null, keyword: '', lowStockOnly: false });
+    const logs = ref([]), logLoading = ref(false), logTotal = ref(0), logPage = ref(1);
+    const logQuery = ref({ warehouseId: null, movementNo: '', changeType: null });
+    const changeTypes = ['IN','OUT','RESERVE','RELEASE','TRANSFER_OUT','TRANSFER_IN','ADJUST_GAIN','ADJUST_LOSS','RETURN_IN','RETURN_OUT'];
+    const skuDrawer = ref(false), skuDist = ref([]);
     async function load() {
       loading.value = true;
       try {
         const q = new URLSearchParams({ page: page.value - 1, size: 20 });
         if (query.value.warehouseId) q.set('warehouseId', query.value.warehouseId);
+        if (query.value.keyword) q.set('keyword', query.value.keyword);
         if (query.value.lowStockOnly) q.set('lowStockOnly', true);
         const data = await ImsAuth.api('/inventory?' + q);
         list.value = data.items; total.value = data.total;
-      } finally { loading.value = false; }
+      } catch (e) { ElementPlus.ElMessage.error(e.message); }
+      finally { loading.value = false; }
+    }
+    async function loadLogs() {
+      logLoading.value = true;
+      try {
+        const q = new URLSearchParams({ page: logPage.value - 1, size: 20 });
+        if (logQuery.value.warehouseId) q.set('warehouseId', logQuery.value.warehouseId);
+        if (logQuery.value.movementNo) q.set('movementNo', logQuery.value.movementNo);
+        if (logQuery.value.changeType) q.set('changeType', logQuery.value.changeType);
+        const data = await ImsAuth.api('/inventory/logs?' + q);
+        logs.value = data.items; logTotal.value = data.total;
+      } catch (e) { ElementPlus.ElMessage.error(e.message); }
+      finally { logLoading.value = false; }
+    }
+    async function exportLogs() {
+      const q = new URLSearchParams();
+      if (logQuery.value.warehouseId) q.set('warehouseId', logQuery.value.warehouseId);
+      if (logQuery.value.movementNo) q.set('movementNo', logQuery.value.movementNo);
+      if (logQuery.value.changeType) q.set('changeType', logQuery.value.changeType);
+      await ImsAuth.download('/inventory/logs/export?' + q, 'inventory-logs.csv');
+    }
+    async function showSku(row) {
+      skuDist.value = await ImsAuth.api('/inventory/sku/' + row.skuId);
+      skuDrawer.value = true;
+    }
+    async function unlock(row) {
+      await ElementPlus.ElMessageBox.confirm('确认临时解锁并从本次盘点排除该 SKU？');
+      await ImsAuth.api('/inventory/' + row.id + '/unlock', { method: 'POST' });
+      ElementPlus.ElMessage.success('已解锁');
+      load();
     }
     onMounted(async () => {
       if (!ImsAuth.requireAuth()) return;
       warehouses.value = (await ImsAuth.api('/warehouses?page=0&size=100')).items;
-      load();
+      load(); loadLogs();
     });
-    return { navHtml, list, warehouses, loading, total, page, query, load };
+    return { navHtml, tab, canUnlock, list, warehouses, loading, total, page, query, load,
+      logs, logLoading, logTotal, logPage, logQuery, changeTypes, loadLogs, exportLogs,
+      skuDrawer, skuDist, showSku, unlock };
   }
 }).use(ElementPlus).mount('#app');
 </script>

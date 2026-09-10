@@ -27,9 +27,9 @@ public class AlertService {
     private final SafetyStockRuleRepository safetyStockRuleRepository;
     private final ProductSkuRepository skuRepository;
 
-    public PageResult<AlertVO> list(AlertStatus status, Long warehouseId, int page, int size) {
+    public PageResult<AlertVO> list(AlertStatus status, Long warehouseId, AlertType alertType, int page, int size) {
         PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<StockAlert> result = alertRepository.search(status, warehouseId, pageable);
+        Page<StockAlert> result = alertRepository.search(status, warehouseId, alertType, pageable);
         return PageResult.of(result.getContent().stream().map(this::toVO).toList(),
                 result.getTotalElements(), page, size);
     }
@@ -68,16 +68,27 @@ public class AlertService {
 
     @Transactional(rollbackFor = Exception.class)
     public void scanWarehouse(Long warehouseId) {
-        inventoryRepository.search(warehouseId, null, false, 0,
+        inventoryRepository.search(warehouseId, null, false, 0, null, null,
                 PageRequest.of(0, Integer.MAX_VALUE)).getContent()
                 .forEach(this::checkAndAlert);
     }
 
     private void checkAndAlert(Inventory inv) {
-        int threshold = resolveMinQty(inv.getSkuId(), inv.getWarehouseId());
-        if (threshold <= 0) return;
+        int minQty = resolveMinQty(inv.getSkuId(), inv.getWarehouseId());
+        Integer maxQty = resolveMaxQty(inv.getSkuId(), inv.getWarehouseId());
         int available = inv.getAvailableQty();
-        AlertType type = available <= 0 ? AlertType.ZERO : (available < threshold ? AlertType.LOW : null);
+        AlertType type = null;
+        int threshold = minQty;
+        if (available <= 0 && minQty > 0) {
+            type = AlertType.ZERO;
+            threshold = 0;
+        } else if (minQty > 0 && available < minQty) {
+            type = AlertType.LOW;
+            threshold = minQty;
+        } else if (maxQty != null && maxQty > 0 && available > maxQty) {
+            type = AlertType.OVER;
+            threshold = maxQty;
+        }
         var existing = alertRepository.findBySkuIdAndWarehouseIdAndStatus(
                 inv.getSkuId(), inv.getWarehouseId(), AlertStatus.OPEN);
         if (type == null) {
@@ -116,6 +127,16 @@ public class AlertService {
                 .orElseGet(() -> skuRepository.findById(skuId)
                         .map(ProductSku::getDefaultSafetyStock)
                         .orElse(0));
+    }
+
+    private Integer resolveMaxQty(Long skuId, Long warehouseId) {
+        return safetyStockRuleRepository.findBySkuIdAndWarehouseId(skuId, warehouseId)
+                .filter(r -> r.getEnabled() == 1)
+                .map(SafetyStockRule::getMaxQty)
+                .or(() -> safetyStockRuleRepository.findBySkuIdAndWarehouseId(skuId, 0L)
+                        .filter(r -> r.getEnabled() == 1)
+                        .map(SafetyStockRule::getMaxQty))
+                .orElse(null);
     }
 
     public long countOpen() {

@@ -22,6 +22,7 @@ public class InventoryLogVO {
     private Integer availableBefore;
     private Integer availableAfter;
     private Long movementId;
+    private String movementNo;
     private Long operatorId;
     private String traceId;
     private String remark;

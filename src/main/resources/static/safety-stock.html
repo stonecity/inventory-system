@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>安全库存 - IMS</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://unpkg.com/element-plus"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/nav.js"></script>
+</head>
+<body class="bg-slate-50">
+<div id="app" class="flex min-h-screen">
+  <aside class="w-64 bg-slate-900 text-white flex flex-col shrink-0">
+    <div class="px-6 py-5 border-b border-slate-700"><h1 class="text-lg font-bold">IMS 库存管理</h1></div>
+    <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto" v-html="navHtml"></nav>
+  </aside>
+  <main class="flex-1 p-8">
+    <div class="flex justify-between mb-4">
+      <h2 class="text-xl font-semibold">安全库存规则</h2>
+      <div class="flex gap-2">
+        <el-button @click="importDlg=true">导入 CSV</el-button>
+        <el-button type="primary" @click="dlg=true">新增规则</el-button>
+      </div>
+    </div>
+    <el-table :data="list" stripe border>
+      <el-table-column prop="skuId" label="SKU ID" width="90" />
+      <el-table-column prop="warehouseId" label="仓库(0=全局)" width="120" />
+      <el-table-column prop="minQty" label="下限" width="80" />
+      <el-table-column prop="maxQty" label="上限" width="80" />
+      <el-table-column prop="enabled" label="启用" width="80" />
+      <el-table-column label="操作" width="120"><template #default="{ row }"><el-button size="small" @click="edit(row)">编辑</el-button></template></el-table-column>
+    </el-table>
+    <el-dialog v-model="dlg" title="安全库存规则" width="480px">
+      <el-form label-width="90px">
+        <el-form-item label="SKU"><el-select v-model="form.skuId" filterable class="w-full" :disabled="!!form.id"><el-option v-for="s in skus" :key="s.id" :label="s.skuCode" :value="s.id" /></el-select></el-form-item>
+        <el-form-item label="仓库"><el-select v-model="form.warehouseId" clearable class="w-full"><el-option :value="0" label="全局" /><el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" /></el-select></el-form-item>
+        <el-form-item label="下限"><el-input-number v-model="form.minQty" :min="0" /></el-form-item>
+        <el-form-item label="上限"><el-input-number v-model="form.maxQty" :min="0" /></el-form-item>
+      </el-form>
+      <template #footer><el-button type="primary" @click="save">保存</el-button></template>
+    </el-dialog>
+    <el-dialog v-model="importDlg" title="导入 CSV" width="520px">
+      <p class="text-sm text-slate-500 mb-2">格式：skuCode,warehouseId,minQty,maxQty （仓库空=全局）</p>
+      <input type="file" accept=".csv,text/csv" @change="onFile" />
+      <template #footer><el-button type="primary" @click="doImport">导入</el-button></template>
+    </el-dialog>
+  </main>
+</div>
+<style>.nav-link{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;font-size:14px;color:#cbd5e1}.nav-link.active{background:#2563eb;color:#fff}</style>
+<script>
+const { createApp, ref, computed, onMounted } = Vue;
+createApp({
+  setup() {
+    const navHtml = computed(() => ImsNav.render('safety-stock.html'));
+    const list = ref([]), skus = ref([]), warehouses = ref([]), dlg = ref(false), importDlg = ref(false), form = ref({ minQty:0, maxQty:0, warehouseId:0 });
+    let parsed = [];
+    async function load() { list.value = (await ImsAuth.api('/safety-stock-rules?page=0&size=100')).items; }
+    function edit(row) { form.value = { ...row }; dlg.value=true; }
+    async function save() {
+      if (form.value.id) await ImsAuth.api('/safety-stock-rules/'+form.value.id, { method:'PUT', body: JSON.stringify(form.value) });
+      else await ImsAuth.api('/safety-stock-rules', { method:'POST', body: JSON.stringify(form.value) });
+      dlg.value=false; load();
+    }
+    function onFile(e) {
+      const f = e.target.files[0]; if (!f) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        parsed = String(reader.result).split(/\r?\n/).slice(1).filter(Boolean).map(line => {
+          const [skuCode, warehouseId, minQty, maxQty] = line.split(',');
+          const sku = skus.value.find(s => s.skuCode === skuCode.trim());
+          return sku ? { skuId: sku.id, warehouseId: warehouseId?Number(warehouseId):0, minQty: Number(minQty), maxQty: maxQty?Number(maxQty):null } : null;
+        }).filter(Boolean);
+      };
+      reader.readAsText(f);
+    }
+    async function doImport() {
+      await ImsAuth.api('/safety-stock-rules/import', { method:'POST', body: JSON.stringify(parsed) });
+      importDlg.value=false; load();
+    }
+    onMounted(async () => {
+      if (!ImsAuth.requireAuth()) return;
+      skus.value = (await ImsAuth.api('/skus?page=0&size=200')).items;
+      warehouses.value = (await ImsAuth.api('/warehouses?page=0&size=100')).items;
+      load();
+    });
+    return { navHtml, list, skus, warehouses, dlg, importDlg, form, edit, save, onFile, doImport };
+  }
+}).use(ElementPlus).mount('#app');
+</script>
+</body>
+</html>

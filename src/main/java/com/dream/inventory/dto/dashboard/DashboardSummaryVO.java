@@ -8,6 +8,7 @@ import lombok.Data;
 public class DashboardSummaryVO {
 
     private long skuCount;
+    private java.math.BigDecimal inventoryAmount;
     private long pendingApprovalCount;
     private long openAlertCount;
 }

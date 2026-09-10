@@ -7,13 +7,19 @@
 | 模块 | 状态 | 说明 |
 |------|------|------|
 | 用户鉴权 | ✅ 已实现 | JWT + RBAC，三种角色（管理员 / 仓库 / 业务） |
+| 用户 / 角色权限 | ✅ 已实现 | 用户管理、角色权限树 |
 | 商品分类 | ✅ 已实现 | 树形分类 CRUD |
 | 商品 SPU / SKU | ✅ 已实现 | 商品与规格 SKU 管理 |
 | 仓库 / 库位 | ✅ 已实现 | 多仓库、库位批量创建 |
-| 采购入库 | 🚧 规划中 | 单据驱动入库 |
-| 销售出库 | 🚧 规划中 | 两阶段预留 + 出库 |
-| 调拨 / 盘点 | 🚧 规划中 | 在途库存、盘点锁定 |
-| 库存预警 | 🚧 规划中 | 安全库存阈值与预警 |
+| 供应商 / 客户 | ✅ 已实现 | 独立主数据维护 |
+| 采购入库 | ✅ 已实现 | 单据驱动，审核后验货入库 |
+| 销售出库 | ✅ 已实现 | 两阶段预留 + 出库，超时自动释放 |
+| 退货 | ✅ 已实现 | 销售退货入库、采购退货出库 |
+| 调拨 | ✅ 已实现 | 调出在途、调入确认、在途取消 |
+| 盘点 | ✅ 已实现 | 锁定快照、实盘、审批生成调整单 |
+| 库存查询 / 日志 | ✅ 已实现 | 实时库存、变动日志导出、盘点期解锁 |
+| 库存预警 | ✅ 已实现 | 安全库存阈值、定时扫描、生成采购单 |
+| 仪表盘 / 报表 | ✅ 已实现 | 概览、趋势、Top SKU、出入库汇总、库龄 |
 
 ## 技术栈
 
@@ -41,6 +47,7 @@ inventory_system/
 │   ├── dto/            # 请求/响应 DTO
 │   ├── entity/         # JPA 实体
 │   ├── repository/     # Spring Data JPA
+│   ├── job/            # 预留超时、盘点超时
 │   ├── security/       # JWT 过滤器、UserDetails
 │   └── service/        # 业务逻辑
 ├── src/main/resources/
@@ -99,9 +106,17 @@ mvn spring-boot:run
 |------|------|
 | 登录 | http://localhost:8080/login.html |
 | 首页 | http://localhost:8080/index.html |
-| 商品分类 | http://localhost:8080/categories.html |
-| 商品 SKU | http://localhost:8080/skus.html |
-| 仓库管理 | http://localhost:8080/warehouses.html |
+| 库存查询 | http://localhost:8080/inventory.html |
+| 出入库单据 | http://localhost:8080/movements.html |
+| 盘点 | http://localhost:8080/stocktake.html |
+| 预警 | http://localhost:8080/alerts.html |
+| 报表 | http://localhost:8080/reports.html |
+| 商品 SPU / SKU | http://localhost:8080/products.html 、 skus.html |
+| 分类 / 仓库 | http://localhost:8080/categories.html 、 warehouses.html |
+| 供应商 / 客户 | http://localhost:8080/suppliers.html 、 customers.html |
+| 安全库存 | http://localhost:8080/safety-stock.html |
+| 用户 / 角色 | http://localhost:8080/users.html 、 roles.html |
+| 系统设置 | http://localhost:8080/settings.html |
 
 ### 5. 默认账号
 

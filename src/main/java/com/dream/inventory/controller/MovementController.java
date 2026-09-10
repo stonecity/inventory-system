@@ -3,7 +3,6 @@ package com.dream.inventory.controller;
 import com.dream.inventory.common.PageResult;
 import com.dream.inventory.common.Result;
 import com.dream.inventory.dto.movement.*;
-import com.dream.inventory.entity.InventoryLog;
 import com.dream.inventory.entity.enums.MovementStatus;
 import com.dream.inventory.entity.enums.MovementType;
 import com.dream.inventory.service.StockMovementService;
@@ -44,8 +43,20 @@ public class MovementController {
 
     @GetMapping("/{id}/logs")
     @PreAuthorize("hasAuthority('inventory:log')")
-    public Result<List<InventoryLog>> getLogs(@PathVariable Long id) {
+    public Result<List<com.dream.inventory.dto.inventory.InventoryLogVO>> getLogs(@PathVariable Long id) {
         return Result.ok(movementService.getLogs(id));
+    }
+
+    @GetMapping("/{id}/print")
+    @PreAuthorize("isAuthenticated()")
+    public Result<PrintMovementVO> print(@PathVariable Long id) {
+        return Result.ok(movementService.print(id));
+    }
+
+    @PutMapping("/{id}")
+    @PreAuthorize("isAuthenticated()")
+    public Result<MovementVO> update(@PathVariable Long id, @Valid @RequestBody MovementCreateRequest req) {
+        return Result.ok(movementService.update(id, req));
     }
 
     @PostMapping("/purchase-in")
@@ -78,6 +89,18 @@ public class MovementController {
         return Result.ok(movementService.createPurchaseReturn(req));
     }
 
+    @PostMapping("/other-in")
+    @PreAuthorize("hasAuthority('inventory:adjust')")
+    public Result<MovementVO> createOtherIn(@Valid @RequestBody MovementCreateRequest req) {
+        return Result.ok(movementService.createOtherIn(req));
+    }
+
+    @PostMapping("/other-out")
+    @PreAuthorize("hasAuthority('inventory:adjust')")
+    public Result<MovementVO> createOtherOut(@Valid @RequestBody MovementCreateRequest req) {
+        return Result.ok(movementService.createOtherOut(req));
+    }
+
     @PostMapping("/{id}/submit")
     @PreAuthorize("isAuthenticated()")
     public Result<MovementVO> submit(@PathVariable Long id, @Valid @RequestBody VersionRequest req) {
@@ -97,7 +120,7 @@ public class MovementController {
     }
 
     @PostMapping("/{id}/receive")
-    @PreAuthorize("hasAnyAuthority('purchase:receive','return:execute')")
+    @PreAuthorize("hasAnyAuthority('purchase:receive','return:execute','inventory:adjust')")
     public Result<MovementVO> receive(@PathVariable Long id, @Valid @RequestBody ExecuteRequest req) {
         return Result.ok(movementService.receive(id, req));
     }
@@ -109,7 +132,7 @@ public class MovementController {
     }
 
     @PostMapping("/{id}/ship")
-    @PreAuthorize("hasAnyAuthority('sale:ship','return:execute')")
+    @PreAuthorize("hasAnyAuthority('sale:ship','return:execute','inventory:adjust')")
     public Result<MovementVO> ship(@PathVariable Long id, @Valid @RequestBody ExecuteRequest req) {
         return Result.ok(movementService.ship(id, req));
     }

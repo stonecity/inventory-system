@@ -63,9 +63,35 @@ window.ImsAuth = (function () {
       throw new Error(json.message || '无权限');
     }
     if (json.code !== 0) {
-      throw new Error(json.message || '请求失败');
+      const err = new Error(json.message || '请求失败');
+      err.code = json.code;
+      err.data = json.data;
+      throw err;
     }
     return json.data;
+  }
+
+  async function download(url, filename) {
+    const headers = {};
+    const token = getToken();
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    const res = await fetch(API + url, { headers });
+    if (res.status === 401) {
+      clearSession();
+      location.href = '/login.html';
+      throw new Error('请重新登录');
+    }
+    if (!res.ok) {
+      throw new Error('导出失败');
+    }
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
   }
 
   async function logout() {
@@ -78,6 +104,6 @@ window.ImsAuth = (function () {
 
   return {
     getToken, getUser, getPermissions, setSession, clearSession,
-    hasPermission, requireAuth, api, logout
+    hasPermission, requireAuth, api, download, logout
   };
 })();

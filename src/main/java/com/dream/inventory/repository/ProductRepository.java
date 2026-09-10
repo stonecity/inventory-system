@@ -7,9 +7,14 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
+import java.util.List;
+
 public interface ProductRepository extends JpaRepository<Product, Long> {
 
     boolean existsByCategoryId(Long categoryId);
+
+    List<Product> findByCategoryIdIn(Collection<Long> categoryIds);
 
     @Query("SELECT p FROM Product p WHERE (:keyword IS NULL OR p.name LIKE %:keyword% OR p.brand LIKE %:keyword%) "
             + "AND (:status IS NULL OR p.status = :status)")

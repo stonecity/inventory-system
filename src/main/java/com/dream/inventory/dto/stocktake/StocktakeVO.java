@@ -18,6 +18,11 @@ public class StocktakeVO {
     private StocktakeStatus status;
     private Integer gainQty;
     private Integer lossQty;
+    private java.math.BigDecimal gainAmount;
+    private java.math.BigDecimal lossAmount;
+    private Long adjustMovementId;
+    private String remark;
+    private String rejectReason;
     private Instant snapshotAt;
     private Integer version;
     private Instant createdAt;

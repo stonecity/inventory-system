@@ -14,7 +14,7 @@
 <div id="app" class="flex min-h-screen">
   <aside class="w-64 bg-slate-900 text-white flex flex-col shrink-0">
     <div class="px-6 py-5 border-b border-slate-700"><h1 class="text-lg font-bold">IMS 库存管理</h1></div>
-    <nav class="flex-1 px-3 py-4 space-y-1" v-html="navHtml"></nav>
+    <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto" v-html="navHtml"></nav>
   </aside>
   <main class="flex-1 p-8">
     <div class="flex justify-between mb-4">
@@ -24,30 +24,49 @@
     <el-table :data="list" v-loading="loading" stripe border>
       <el-table-column prop="stocktakeNo" label="盘点单号" width="180" />
       <el-table-column prop="warehouseId" label="仓库" width="80" />
+      <el-table-column prop="scope" label="范围" width="110" />
       <el-table-column prop="status" label="状态" width="140" />
       <el-table-column prop="gainQty" label="盘盈" width="70" />
       <el-table-column prop="lossQty" label="盘亏" width="70" />
-      <el-table-column label="操作" min-width="260">
+      <el-table-column label="操作" min-width="380">
         <template #default="{ row }">
           <el-button size="small" v-if="row.status==='CREATED'" @click="doLock(row)">冻结快照</el-button>
           <el-button size="small" v-if="['LOCKED','COUNTING'].includes(row.status)" @click="openCount(row)">录入实盘</el-button>
           <el-button size="small" v-if="row.status==='COUNTING'" @click="doSubmit(row)">提交差异</el-button>
           <el-button size="small" v-if="row.status==='PENDING_APPROVAL'" @click="doApprove(row)">审批生效</el-button>
+          <el-button size="small" v-if="row.status==='PENDING_APPROVAL'" @click="doReject(row)">驳回</el-button>
+          <el-button size="small" v-if="!['COMPLETED','CANCELLED'].includes(row.status)" @click="doCancel(row)">取消</el-button>
+          <el-button size="small" @click="downloadReport(row)">报表</el-button>
         </template>
       </el-table-column>
     </el-table>
     <el-dialog v-model="createDlg" title="创建盘点" width="480px">
-      <el-form label-width="80px">
+      <el-form label-width="90px">
         <el-form-item label="仓库"><el-select v-model="form.warehouseId" filterable class="w-full"><el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" /></el-select></el-form-item>
+        <el-form-item label="范围">
+          <el-select v-model="form.scope" class="w-full">
+            <el-option label="全仓" value="ALL" />
+            <el-option label="按分类" value="BY_CATEGORY" />
+            <el-option label="按库位" value="BY_LOCATION" />
+            <el-option label="按 SKU" value="BY_SKU" />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="form.scope!=='ALL'" label="范围值"><el-input v-model="form.scopeText" placeholder="ID 逗号分隔" /></el-form-item>
       </el-form>
       <template #footer><el-button @click="createDlg=false">取消</el-button><el-button type="primary" @click="doCreate">创建</el-button></template>
     </el-dialog>
-    <el-dialog v-model="countDlg" title="录入实盘" width="720px">
-      <el-table :data="countItems" border size="small">
+    <el-dialog v-model="countDlg" title="录入实盘" width="800px">
+      <div class="mb-3"><input type="file" accept=".csv" @change="importCsv" /> <span class="text-xs text-slate-500">CSV: skuCode,locationId,countedQty,reason</span></div>
+      <el-table :data="countItems" border size="small" height="360">
         <el-table-column prop="skuCode" label="SKU" />
         <el-table-column prop="snapshotQty" label="快照" width="80" />
-        <el-table-column label="实盘" width="120">
+        <el-table-column label="实盘" width="130">
           <template #default="{ row }"><el-input-number v-model="row.countedQty" :min="0" size="small" /></template>
+        </el-table-column>
+        <el-table-column label="差异" width="80">
+          <template #default="{ row }">
+            <span :class="(row.countedQty-row.snapshotQty)>0?'text-green-600':((row.countedQty-row.snapshotQty)<0?'text-red-600':'')">{{ (row.countedQty??row.snapshotQty)-row.snapshotQty }}</span>
+          </template>
         </el-table-column>
       </el-table>
       <template #footer><el-button type="primary" @click="saveCounts">保存</el-button></template>
@@ -60,11 +79,18 @@ const { createApp, ref, computed, onMounted } = Vue;
 createApp({
   setup() {
     const navHtml = computed(() => ImsNav.render('stocktake.html'));
-    const list = ref([]), loading = ref(false), warehouses = ref([]), createDlg = ref(false), form = ref({ warehouseId: null });
+    const list = ref([]), loading = ref(false), warehouses = ref([]), createDlg = ref(false), form = ref({ warehouseId: null, scope: 'ALL', scopeText: '' });
     const countDlg = ref(false), countItems = ref([]), currentStId = ref(null);
     async function load() { loading.value = true; try { list.value = (await ImsAuth.api('/stocktakes?page=0&size=50')).items; } finally { loading.value = false; } }
     async function doCreate() {
-      await ImsAuth.api('/stocktakes', { method:'POST', body: JSON.stringify({ warehouseId: form.value.warehouseId, scope: 'ALL' }) });
+      const blocked = await ImsAuth.api('/stocktakes/precheck', { method:'POST', body: JSON.stringify({ warehouseId: form.value.warehouseId, scope: form.value.scope }) });
+      if (blocked && blocked.length) {
+        await ElementPlus.ElMessageBox.alert('存在阻塞单据: ' + blocked.join(', '), '无法创建');
+        return;
+      }
+      const body = { warehouseId: form.value.warehouseId, scope: form.value.scope };
+      if (form.value.scope !== 'ALL' && form.value.scopeText) body.scopeValue = form.value.scopeText.split(',').map(s => Number(s.trim()));
+      await ImsAuth.api('/stocktakes', { method:'POST', body: JSON.stringify(body) });
       createDlg.value = false; load();
     }
     async function doLock(row) { await ImsAuth.api(`/stocktakes/${row.id}/lock`, { method:'POST' }); load(); }
@@ -80,14 +106,32 @@ createApp({
       }
       countDlg.value = false; load();
     }
+    async function importCsv(e) {
+      const f = e.target.files[0]; if (!f) return;
+      const text = await f.text();
+      const rows = text.split(/\r?\n/).slice(1).filter(Boolean).map(line => {
+        const [skuCode, locationId, countedQty, reason] = line.split(',');
+        return { skuCode: skuCode.trim(), locationId: locationId?Number(locationId):0, countedQty: Number(countedQty), reason };
+      });
+      await ImsAuth.api(`/stocktakes/${currentStId.value}/items/import`, { method:'POST', body: JSON.stringify(rows) });
+      countItems.value = await ImsAuth.api(`/stocktakes/${currentStId.value}/items`);
+      ElementPlus.ElMessage.success('导入成功');
+    }
     async function doSubmit(row) { await ImsAuth.api(`/stocktakes/${row.id}/submit`, { method:'POST' }); load(); }
-    async function doApprove(row) { await ImsAuth.api(`/stocktakes/${row.id}/approve`, { method:'POST' }); load(); }
+    async function doApprove(row) { await ImsAuth.api(`/stocktakes/${row.id}/approve`, { method:'POST', body: JSON.stringify({ version: row.version }) }); load(); }
+    async function doReject(row) {
+      const { value } = await ElementPlus.ElMessageBox.prompt('驳回原因', '复盘');
+      await ImsAuth.api(`/stocktakes/${row.id}/reject`, { method:'POST', body: JSON.stringify({ version: row.version, reason: value }) });
+      load();
+    }
+    async function doCancel(row) { await ImsAuth.api(`/stocktakes/${row.id}/cancel`, { method:'POST' }); load(); }
+    async function downloadReport(row) { await ImsAuth.download(`/stocktakes/${row.id}/report`, row.stocktakeNo + '.csv'); }
     onMounted(async () => {
       if (!ImsAuth.requireAuth()) return;
       warehouses.value = (await ImsAuth.api('/warehouses?page=0&size=100')).items;
       load();
     });
-    return { navHtml, list, loading, warehouses, createDlg, form, countDlg, countItems, load, doCreate, doLock, openCount, saveCounts, doSubmit, doApprove };
+    return { navHtml, list, loading, warehouses, createDlg, form, countDlg, countItems, load, doCreate, doLock, openCount, saveCounts, importCsv, doSubmit, doApprove, doReject, doCancel, downloadReport };
   }
 }).use(ElementPlus).mount('#app');
 </script>

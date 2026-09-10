@@ -14,14 +14,27 @@
 <div id="app" class="flex min-h-screen">
   <aside class="w-64 bg-slate-900 text-white flex flex-col shrink-0">
     <div class="px-6 py-5 border-b border-slate-700"><h1 class="text-lg font-bold">IMS 库存管理</h1></div>
-    <nav class="flex-1 px-3 py-4 space-y-1" v-html="navHtml"></nav>
+    <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto" v-html="navHtml"></nav>
   </aside>
   <main class="flex-1 p-8">
     <div class="flex justify-between mb-4">
       <h2 class="text-xl font-semibold">库存预警</h2>
-      <el-button @click="scan">手动扫描</el-button>
+      <div class="flex gap-2">
+        <el-button @click="scan">手动扫描</el-button>
+        <el-button type="primary" :disabled="!selected.length" @click="genDlg=true">生成采购单</el-button>
+      </div>
     </div>
-    <el-table :data="list" v-loading="loading" stripe border>
+    <div class="bg-white rounded-xl border p-4 mb-4 flex gap-3">
+      <el-select v-model="query.status" placeholder="状态" clearable style="width:120px">
+        <el-option label="开放" value="OPEN" /><el-option label="已确认" value="ACKED" /><el-option label="已关闭" value="CLOSED" />
+      </el-select>
+      <el-select v-model="query.type" placeholder="类型" clearable style="width:120px">
+        <el-option label="低库存" value="LOW" /><el-option label="零库存" value="ZERO" /><el-option label="超储" value="OVER" />
+      </el-select>
+      <el-button type="primary" @click="load">查询</el-button>
+    </div>
+    <el-table :data="list" v-loading="loading" stripe border @selection-change="rows => selected = rows">
+      <el-table-column type="selection" width="40" />
       <el-table-column prop="skuCode" label="SKU" width="140" />
       <el-table-column prop="warehouseId" label="仓库" width="80" />
       <el-table-column prop="alertType" label="类型" width="90" />
@@ -35,6 +48,14 @@
         </template>
       </el-table-column>
     </el-table>
+    <el-dialog v-model="genDlg" title="生成采购入库单" width="420px">
+      <el-form label-width="80px">
+        <el-form-item label="供应商">
+          <el-select v-model="supplierId" filterable class="w-full"><el-option v-for="s in suppliers" :key="s.id" :label="s.name" :value="s.id" /></el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer><el-button type="primary" @click="generate">生成</el-button></template>
+    </el-dialog>
   </main>
 </div>
 <style>.nav-link{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;font-size:14px;color:#cbd5e1}.nav-link.active{background:#2563eb;color:#fff}</style>
@@ -43,13 +64,29 @@ const { createApp, ref, computed, onMounted } = Vue;
 createApp({
   setup() {
     const navHtml = computed(() => ImsNav.render('alerts.html'));
-    const list = ref([]), loading = ref(false);
-    async function load() { loading.value = true; try { list.value = (await ImsAuth.api('/alerts?page=0&size=50')).items; } finally { loading.value = false; } }
+    const list = ref([]), loading = ref(false), selected = ref([]), query = ref({}), suppliers = ref([]), genDlg = ref(false), supplierId = ref(null);
+    async function load() {
+      loading.value = true;
+      try {
+        const q = new URLSearchParams({ page:0, size:50 });
+        if (query.value.status) q.set('status', query.value.status);
+        if (query.value.type) q.set('type', query.value.type);
+        list.value = (await ImsAuth.api('/alerts?' + q)).items;
+      } finally { loading.value = false; }
+    }
     async function scan() { await ImsAuth.api('/alerts/scan', { method:'POST' }); load(); }
     async function ack(row) { await ImsAuth.api(`/alerts/${row.id}/ack`, { method:'POST' }); load(); }
     async function close(row) { await ImsAuth.api(`/alerts/${row.id}/close`, { method:'POST' }); load(); }
-    onMounted(() => { if (ImsAuth.requireAuth()) load(); });
-    return { navHtml, list, loading, load, scan, ack, close };
+    async function generate() {
+      await ImsAuth.api('/alerts/generate-purchase', { method:'POST', body: JSON.stringify({ alertIds: selected.value.map(a=>a.id), supplierId: supplierId.value }) });
+      genDlg.value=false; ElementPlus.ElMessage.success('已生成采购草稿'); location.href='movements.html';
+    }
+    onMounted(async () => {
+      if (!ImsAuth.requireAuth()) return;
+      suppliers.value = (await ImsAuth.api('/suppliers?page=0&size=100')).items;
+      load();
+    });
+    return { navHtml, list, loading, selected, query, suppliers, genDlg, supplierId, load, scan, ack, close, generate };
   }
 }).use(ElementPlus).mount('#app');
 </script>

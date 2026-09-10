@@ -4,6 +4,7 @@ import com.dream.inventory.common.BizException;
 import com.dream.inventory.common.ErrorCode;
 import com.dream.inventory.common.PageResult;
 import com.dream.inventory.common.TraceContext;
+import com.dream.inventory.dto.inventory.InventoryLogVO;
 import com.dream.inventory.dto.movement.*;
 import com.dream.inventory.entity.*;
 import com.dream.inventory.entity.enums.*;
@@ -37,6 +38,10 @@ public class StockMovementService {
     private final WarehouseAccessService warehouseAccessService;
     private final AuditLogService auditLogService;
     private final AlertService alertService;
+    private final WarehouseRepository warehouseRepository;
+    private final SupplierRepository supplierRepository;
+    private final CustomerRepository customerRepository;
+    private final StockAlertRepository alertRepository;
 
     public PageResult<MovementVO> list(MovementType type, MovementStatus status, Long warehouseId,
                                        Long partnerId, Instant from, Instant to, int page, int size) {
@@ -50,9 +55,10 @@ public class StockMovementService {
         return toVO(findOrThrow(id));
     }
 
-    public List<InventoryLog> getLogs(Long id) {
+    public List<InventoryLogVO> getLogs(Long id) {
         findOrThrow(id);
-        return inventoryLogRepository.findByMovementIdOrderByOperatedAtAsc(id);
+        return inventoryLogRepository.findByMovementIdOrderByOperatedAtAsc(id).stream()
+                .map(this::toLogVO).toList();
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -101,6 +107,109 @@ public class StockMovementService {
         MovementCreateRequest copy = req;
         copy.setWarehouseId(ref.getWarehouseId());
         return createMovement(copy, MovementType.PURCHASE_RETURN, PartnerType.SUPPLIER, MovementStatus.DRAFT);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public MovementVO createOtherIn(MovementCreateRequest req) {
+        return createMovement(req, MovementType.OTHER_IN, null, MovementStatus.DRAFT);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public MovementVO createOtherOut(MovementCreateRequest req) {
+        return createMovement(req, MovementType.OTHER_OUT, null, MovementStatus.DRAFT);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public MovementVO update(Long id, MovementCreateRequest req) {
+        StockMovement m = findOrThrow(id);
+        if (m.getStatus() != MovementStatus.DRAFT
+                && m.getStatus() != MovementStatus.REJECTED
+                && m.getStatus() != MovementStatus.RESERVE_FAILED) {
+            throw new BizException(ErrorCode.ILLEGAL_STATE_TRANSITION, "仅草稿/驳回/预留失败可编辑");
+        }
+        warehouseAccessService.checkWarehouseAccess(req.getWarehouseId());
+        validateItems(req.getItems());
+        m.setWarehouseId(req.getWarehouseId());
+        m.setToWarehouseId(req.getToWarehouseId());
+        m.setPartnerId(req.getPartnerId());
+        m.setRemark(req.getRemark());
+        m.getItems().clear();
+        int totalQty = 0;
+        BigDecimal totalAmount = BigDecimal.ZERO;
+        for (MovementItemRequest ir : req.getItems()) {
+            ProductSku sku = skuRepository.findById(ir.getSkuId())
+                    .orElseThrow(() -> new BizException(ErrorCode.NOT_FOUND, "SKU 不存在"));
+            BigDecimal price = ir.getUnitPrice() != null ? ir.getUnitPrice() : sku.getSalePrice();
+            BigDecimal amount = price.multiply(BigDecimal.valueOf(ir.getPlannedQty()));
+            m.addItem(StockMovementItem.builder()
+                    .skuId(ir.getSkuId())
+                    .locationId(ir.getLocationId())
+                    .plannedQty(ir.getPlannedQty())
+                    .unitPrice(price)
+                    .amount(amount)
+                    .remark(ir.getRemark())
+                    .build());
+            totalQty += ir.getPlannedQty();
+            totalAmount = totalAmount.add(amount);
+        }
+        m.setTotalQty(totalQty);
+        m.setTotalAmount(totalAmount);
+        if (m.getStatus() == MovementStatus.REJECTED || m.getStatus() == MovementStatus.RESERVE_FAILED) {
+            m.setStatus(MovementStatus.DRAFT);
+        }
+        return toVO(movementRepository.save(m));
+    }
+
+    public PrintMovementVO print(Long id) {
+        StockMovement m = findOrThrow(id);
+        String warehouseName = warehouseRepository.findById(m.getWarehouseId())
+                .map(Warehouse::getName).orElse("");
+        String toName = m.getToWarehouseId() == null ? null
+                : warehouseRepository.findById(m.getToWarehouseId()).map(Warehouse::getName).orElse(null);
+        String partnerName = null;
+        if (m.getPartnerId() != null && m.getPartnerType() == PartnerType.SUPPLIER) {
+            partnerName = supplierRepository.findById(m.getPartnerId()).map(Supplier::getName).orElse(null);
+        } else if (m.getPartnerId() != null && m.getPartnerType() == PartnerType.CUSTOMER) {
+            partnerName = customerRepository.findById(m.getPartnerId()).map(Customer::getName).orElse(null);
+        }
+        MovementVO vo = toVO(m);
+        return PrintMovementVO.builder()
+                .movement(vo)
+                .warehouseName(warehouseName)
+                .toWarehouseName(toName)
+                .partnerName(partnerName)
+                .printedAt(Instant.now())
+                .items(vo.getItems())
+                .build();
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public MovementVO createPurchaseFromAlerts(List<Long> alertIds, Long supplierId) {
+        if (alertIds == null || alertIds.isEmpty()) {
+            throw new BizException(ErrorCode.VALIDATION_ERROR, "请选择预警");
+        }
+        List<StockAlert> alerts = alertRepository.findByIdIn(alertIds);
+        if (alerts.isEmpty()) {
+            throw new BizException(ErrorCode.NOT_FOUND, "预警不存在");
+        }
+        Long warehouseId = alerts.get(0).getWarehouseId();
+        List<MovementItemRequest> items = new ArrayList<>();
+        for (StockAlert alert : alerts) {
+            if (!warehouseId.equals(alert.getWarehouseId())) {
+                throw new BizException(ErrorCode.VALIDATION_ERROR, "请选择同一仓库的预警");
+            }
+            int need = Math.max(alert.getThreshold() - alert.getCurrentQty(), 1);
+            MovementItemRequest ir = new MovementItemRequest();
+            ir.setSkuId(alert.getSkuId());
+            ir.setPlannedQty(need);
+            items.add(ir);
+        }
+        MovementCreateRequest req = new MovementCreateRequest();
+        req.setWarehouseId(warehouseId);
+        req.setPartnerId(supplierId);
+        req.setRemark("由低库存预警生成");
+        req.setItems(items);
+        return createPurchaseIn(req);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -159,7 +268,7 @@ public class StockMovementService {
         checkVersion(m, req.getVersion());
         warehouseAccessService.checkWarehouseAccess(m.getWarehouseId());
         TraceContext.getOrCreate();
-        if (m.getType() == MovementType.PURCHASE_IN) {
+        if (m.getType() == MovementType.PURCHASE_IN || m.getType() == MovementType.OTHER_IN) {
             if (m.getStatus() != MovementStatus.APPROVED && m.getStatus() != MovementStatus.RECEIVING) {
                 throw new BizException(ErrorCode.ILLEGAL_STATE_TRANSITION);
             }
@@ -206,7 +315,7 @@ public class StockMovementService {
             }
             executeShip(m, req);
             m.setStatus(MovementStatus.SHIPPED);
-        } else if (m.getType() == MovementType.PURCHASE_RETURN) {
+        } else if (m.getType() == MovementType.PURCHASE_RETURN || m.getType() == MovementType.OTHER_OUT) {
             if (m.getStatus() != MovementStatus.APPROVED) {
                 throw new BizException(ErrorCode.ILLEGAL_STATE_TRANSITION);
             }
@@ -368,9 +477,17 @@ public class StockMovementService {
             item.setActualQty(qty);
             item.setCond(ex.getCondition());
             Long loc = ex.getLocationId() != null ? ex.getLocationId() : 0L;
+            Long targetWarehouseId = m.getWarehouseId();
+            if (isReturn && ex.getCondition() == ItemCondition.DEFECTIVE) {
+                targetWarehouseId = warehouseRepository.findByTypeAndStatus(WarehouseType.VIRTUAL, 1)
+                        .stream().findFirst()
+                        .orElseThrow(() -> new BizException(ErrorCode.VALIDATION_ERROR, "请先创建退货待检虚拟仓"))
+                        .getId();
+            }
             if (isReturn) {
-                inventoryService.returnIn(item.getSkuId(), m.getWarehouseId(), loc, qty,
-                        m.getId(), item.getId(), "销售退货入库");
+                inventoryService.returnIn(item.getSkuId(), targetWarehouseId, loc, qty,
+                        m.getId(), item.getId(),
+                        ex.getCondition() == ItemCondition.DEFECTIVE ? "销售退货次品入虚拟仓" : "销售退货入库");
                 if (m.getRefMovementId() != null) {
                     updateReturnedQty(m.getRefMovementId(), item.getSkuId(), qty);
                 }
@@ -579,6 +696,30 @@ public class StockMovementService {
                 .version(m.getVersion())
                 .createdAt(m.getCreatedAt())
                 .items(items)
+                .build();
+    }
+
+    private InventoryLogVO toLogVO(InventoryLog log) {
+        String skuCode = skuRepository.findById(log.getSkuId())
+                .map(ProductSku::getSkuCode).orElse("");
+        return InventoryLogVO.builder()
+                .id(log.getId())
+                .skuId(log.getSkuId())
+                .skuCode(skuCode)
+                .warehouseId(log.getWarehouseId())
+                .locationId(log.getLocationId())
+                .changeType(log.getChangeType())
+                .deltaQty(log.getDeltaQty())
+                .onHandBefore(log.getOnHandBefore())
+                .onHandAfter(log.getOnHandAfter())
+                .availableBefore(log.getAvailableBefore())
+                .availableAfter(log.getAvailableAfter())
+                .movementId(log.getMovementId())
+                .movementNo(null)
+                .operatorId(log.getOperatorId())
+                .traceId(log.getTraceId())
+                .remark(log.getRemark())
+                .operatedAt(log.getOperatedAt())
                 .build();
     }
 }

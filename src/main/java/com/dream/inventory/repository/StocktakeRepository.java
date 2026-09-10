@@ -25,4 +25,8 @@ public interface StocktakeRepository extends JpaRepository<Stocktake, Long> {
     List<Stocktake> findByWarehouseIdAndStatusIn(Long warehouseId, Collection<StocktakeStatus> statuses);
 
     boolean existsByWarehouseIdAndStatusIn(Long warehouseId, Collection<StocktakeStatus> statuses);
+
+    List<Stocktake> findByStatusInAndSnapshotAtBefore(Collection<StocktakeStatus> statuses, java.time.Instant before);
+
+    List<Stocktake> findByStatusInAndCreatedAtBefore(Collection<StocktakeStatus> statuses, java.time.Instant before);
 }

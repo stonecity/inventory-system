@@ -3,6 +3,7 @@ package com.dream.inventory.service;
 import com.dream.inventory.common.BizException;
 import com.dream.inventory.common.ErrorCode;
 import com.dream.inventory.dto.role.PermissionVO;
+import com.dream.inventory.dto.role.RoleCreateRequest;
 import com.dream.inventory.dto.role.RoleVO;
 import com.dream.inventory.entity.SysPermission;
 import com.dream.inventory.entity.SysRole;
@@ -25,6 +26,25 @@ public class RoleService {
 
     public List<RoleVO> listRoles() {
         return roleRepository.findAll().stream().map(this::toVO).toList();
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public RoleVO create(RoleCreateRequest req) {
+        if (roleRepository.findByCode(req.getCode()).isPresent()) {
+            throw new BizException(ErrorCode.VALIDATION_ERROR, "角色编码已存在");
+        }
+        SysRole role = SysRole.builder()
+                .code(req.getCode().trim())
+                .name(req.getName().trim())
+                .description(req.getDescription())
+                .build();
+        if (req.getPermissionCodes() != null && !req.getPermissionCodes().isEmpty()) {
+            role.setPermissions(req.getPermissionCodes().stream()
+                    .map(code -> permissionRepository.findByCode(code)
+                            .orElseThrow(() -> new BizException(ErrorCode.NOT_FOUND, "权限不存在: " + code)))
+                    .collect(Collectors.toSet()));
+        }
+        return toVO(roleRepository.save(role));
     }
 
     public List<PermissionVO> listPermissions() {

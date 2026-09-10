@@ -2,6 +2,7 @@ package com.dream.inventory.controller;
 
 import com.dream.inventory.common.Result;
 import com.dream.inventory.dto.role.PermissionVO;
+import com.dream.inventory.dto.role.RoleCreateRequest;
 import com.dream.inventory.dto.role.RolePermissionsRequest;
 import com.dream.inventory.dto.role.RoleVO;
 import com.dream.inventory.service.RoleService;
@@ -23,6 +24,12 @@ public class RoleController {
     @PreAuthorize("hasAuthority('system:role')")
     public Result<List<RoleVO>> listRoles() {
         return Result.ok(roleService.listRoles());
+    }
+
+    @PostMapping("/roles")
+    @PreAuthorize("hasAuthority('system:role')")
+    public Result<RoleVO> create(@Valid @RequestBody RoleCreateRequest req) {
+        return Result.ok(roleService.create(req));
     }
 
     @GetMapping("/permissions")

@@ -8,6 +8,9 @@ import com.dream.inventory.entity.enums.StocktakeStatus;
 import com.dream.inventory.service.StocktakeService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -75,8 +78,9 @@ public class StocktakeController {
 
     @PostMapping("/{id}/approve")
     @PreAuthorize("hasAuthority('stocktake:approve')")
-    public Result<StocktakeVO> approve(@PathVariable Long id) {
-        return Result.ok(stocktakeService.approve(id));
+    public Result<StocktakeVO> approve(@PathVariable Long id, @RequestBody(required = false) VersionRequest req) {
+        Integer version = req == null ? null : req.getVersion();
+        return Result.ok(stocktakeService.approve(id, version));
     }
 
     @PostMapping("/{id}/reject")
@@ -89,5 +93,22 @@ public class StocktakeController {
     @PreAuthorize("hasAuthority('stocktake:create')")
     public Result<StocktakeVO> cancel(@PathVariable Long id) {
         return Result.ok(stocktakeService.cancel(id));
+    }
+
+    @PostMapping("/{id}/items/import")
+    @PreAuthorize("hasAuthority('stocktake:count')")
+    public Result<Integer> importItems(@PathVariable Long id,
+                                       @Valid @RequestBody List<StocktakeImportItemRequest> rows) {
+        return Result.ok(stocktakeService.importItems(id, rows));
+    }
+
+    @GetMapping("/{id}/report")
+    @PreAuthorize("hasAnyAuthority('stocktake:create','stocktake:count','stocktake:approve')")
+    public ResponseEntity<byte[]> report(@PathVariable Long id) {
+        byte[] csv = stocktakeService.report(id);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=stocktake-report.csv")
+                .contentType(new MediaType("text", "csv", java.nio.charset.StandardCharsets.UTF_8))
+                .body(csv);
     }
 }
