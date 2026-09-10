@@ -1,0 +1,7 @@
+package com.dream.inventory.entity.enums;
+
+public enum MovementStatus {
+    DRAFT, PENDING_APPROVAL, APPROVED, REJECTED,
+    RESERVED, RESERVE_FAILED, RECEIVING, PICKING, IN_TRANSIT,
+    SHIPPED, COMPLETED, PARTIALLY_COMPLETED, CANCELLED
+}

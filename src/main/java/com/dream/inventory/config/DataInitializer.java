@@ -6,6 +6,7 @@ import com.dream.inventory.entity.SysUser;
 import com.dream.inventory.repository.SysPermissionRepository;
 import com.dream.inventory.repository.SysRoleRepository;
 import com.dream.inventory.repository.SysUserRepository;
+import com.dream.inventory.service.SettingsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
@@ -25,12 +26,14 @@ public class DataInitializer implements ApplicationRunner {
     private final SysRoleRepository roleRepository;
     private final SysUserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final SettingsService settingsService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void run(ApplicationArguments args) {
         seedPermissionsAndRoles();
         seedAdminUser();
+        settingsService.seedDefaultsIfEmpty();
     }
 
     private void seedPermissionsAndRoles() {

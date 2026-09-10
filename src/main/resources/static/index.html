@@ -9,9 +9,7 @@
   <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
   <script src="https://unpkg.com/element-plus"></script>
   <script src="/js/auth.js"></script>
-  <script>
-    tailwind.config = { theme: { extend: { colors: { brand: { 600: '#2563eb' } } } } }
-  </script>
+  <script src="/js/nav.js"></script>
 </head>
 <body class="bg-slate-50 min-h-screen">
 <div id="app" class="flex min-h-screen">
@@ -20,25 +18,22 @@
       <h1 class="text-lg font-bold">IMS 库存管理</h1>
       <p class="text-xs text-slate-400 mt-1">Inventory Management System</p>
     </div>
-    <nav class="flex-1 px-3 py-4 space-y-1">
-      <a href="index.html" class="nav-link active">🏠 首页</a>
-      <a href="categories.html" class="nav-link">🗂️ 商品分类</a>
-      <a href="skus.html" class="nav-link">📦 商品 SKU</a>
-      <a href="warehouses.html" class="nav-link">🏭 仓库管理</a>
-    </nav>
+    <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto" v-html="navHtml"></nav>
     <div class="px-6 py-4 border-t border-slate-700 text-xs text-slate-400">{{ user?.realName || '未登录' }}</div>
   </aside>
-
   <main class="flex-1 flex flex-col">
     <header class="bg-white border-b border-slate-200 px-8 py-4 flex items-center justify-between">
       <h2 class="text-xl font-semibold text-slate-800">首页概览</h2>
       <el-button @click="ImsAuth.logout()">退出登录</el-button>
     </header>
     <div class="flex-1 p-8">
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-5xl">
-        <a href="categories.html" class="card">🗂️<h3>商品分类</h3><p>树形维护分类层级</p></a>
-        <a href="skus.html" class="card">📦<h3>商品 SKU</h3><p>SKU 编码、规格、价格</p></a>
-        <a href="warehouses.html" class="card">🏭<h3>仓库管理</h3><p>仓库与库位配置</p></a>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div class="stat-card"><div class="stat-label">SKU 总数</div><div class="stat-value">{{ summary.skuCount ?? '-' }}</div></div>
+        <div class="stat-card"><div class="stat-label">待审核单据</div><div class="stat-value text-amber-600">{{ summary.pendingApprovalCount ?? '-' }}</div></div>
+        <div class="stat-card"><div class="stat-label">开放预警</div><div class="stat-value text-red-600">{{ summary.openAlertCount ?? '-' }}</div></div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <a v-for="l in quickLinks" :key="l.href" :href="l.href" class="card">{{ l.icon }}<h3>{{ l.label }}</h3></a>
       </div>
     </div>
   </main>
@@ -47,21 +42,27 @@
   .nav-link { display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:8px; font-size:14px; color:#cbd5e1; transition:.15s; }
   .nav-link:hover { background:#1e293b; color:#fff; }
   .nav-link.active { background:#2563eb; color:#fff; font-weight:500; }
-  .card { display:block; background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:24px; box-shadow:0 1px 2px rgb(0 0 0/.05); transition:.2s; font-size:2rem; }
-  .card h3 { font-size:1.125rem; font-weight:600; color:#1e293b; margin-top:12px; }
-  .card p { font-size:.875rem; color:#64748b; margin-top:8px; }
-  .card:hover { border-color:#2563eb; box-shadow:0 4px 12px rgb(0 0 0/.08); }
+  .stat-card { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:24px; }
+  .stat-label { font-size:.875rem; color:#64748b; }
+  .stat-value { font-size:2rem; font-weight:700; color:#1e293b; margin-top:8px; }
+  .card { display:block; background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:20px; font-size:1.5rem; transition:.2s; }
+  .card h3 { font-size:1rem; font-weight:600; color:#1e293b; margin-top:8px; }
+  .card:hover { border-color:#2563eb; }
 </style>
 <script>
-const { createApp, ref, onMounted } = Vue;
+const { createApp, ref, onMounted, computed } = Vue;
 createApp({
   setup() {
     const user = ref(null);
-    onMounted(() => {
+    const summary = ref({});
+    const navHtml = computed(() => ImsNav.render('index.html'));
+    const quickLinks = ImsNav.links.filter(l => l.href !== 'index.html');
+    onMounted(async () => {
       if (!ImsAuth.requireAuth()) return;
       user.value = ImsAuth.getUser();
+      try { summary.value = await ImsAuth.api('/dashboard/summary'); } catch(e) {}
     });
-    return { user, ImsAuth };
+    return { user, summary, navHtml, quickLinks, ImsAuth };
   }
 }).use(ElementPlus).mount('#app');
 </script>

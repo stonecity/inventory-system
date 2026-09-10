@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>盘点管理 - IMS</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://unpkg.com/element-plus"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/nav.js"></script>
+</head>
+<body class="bg-slate-50">
+<div id="app" class="flex min-h-screen">
+  <aside class="w-64 bg-slate-900 text-white flex flex-col shrink-0">
+    <div class="px-6 py-5 border-b border-slate-700"><h1 class="text-lg font-bold">IMS 库存管理</h1></div>
+    <nav class="flex-1 px-3 py-4 space-y-1" v-html="navHtml"></nav>
+  </aside>
+  <main class="flex-1 p-8">
+    <div class="flex justify-between mb-4">
+      <h2 class="text-xl font-semibold">盘点任务</h2>
+      <el-button type="primary" @click="createDlg=true">创建盘点</el-button>
+    </div>
+    <el-table :data="list" v-loading="loading" stripe border>
+      <el-table-column prop="stocktakeNo" label="盘点单号" width="180" />
+      <el-table-column prop="warehouseId" label="仓库" width="80" />
+      <el-table-column prop="status" label="状态" width="140" />
+      <el-table-column prop="gainQty" label="盘盈" width="70" />
+      <el-table-column prop="lossQty" label="盘亏" width="70" />
+      <el-table-column label="操作" min-width="260">
+        <template #default="{ row }">
+          <el-button size="small" v-if="row.status==='CREATED'" @click="doLock(row)">冻结快照</el-button>
+          <el-button size="small" v-if="['LOCKED','COUNTING'].includes(row.status)" @click="openCount(row)">录入实盘</el-button>
+          <el-button size="small" v-if="row.status==='COUNTING'" @click="doSubmit(row)">提交差异</el-button>
+          <el-button size="small" v-if="row.status==='PENDING_APPROVAL'" @click="doApprove(row)">审批生效</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+    <el-dialog v-model="createDlg" title="创建盘点" width="480px">
+      <el-form label-width="80px">
+        <el-form-item label="仓库"><el-select v-model="form.warehouseId" filterable class="w-full"><el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" /></el-select></el-form-item>
+      </el-form>
+      <template #footer><el-button @click="createDlg=false">取消</el-button><el-button type="primary" @click="doCreate">创建</el-button></template>
+    </el-dialog>
+    <el-dialog v-model="countDlg" title="录入实盘" width="720px">
+      <el-table :data="countItems" border size="small">
+        <el-table-column prop="skuCode" label="SKU" />
+        <el-table-column prop="snapshotQty" label="快照" width="80" />
+        <el-table-column label="实盘" width="120">
+          <template #default="{ row }"><el-input-number v-model="row.countedQty" :min="0" size="small" /></template>
+        </el-table-column>
+      </el-table>
+      <template #footer><el-button type="primary" @click="saveCounts">保存</el-button></template>
+    </el-dialog>
+  </main>
+</div>
+<style>.nav-link{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;font-size:14px;color:#cbd5e1}.nav-link.active{background:#2563eb;color:#fff}</style>
+<script>
+const { createApp, ref, computed, onMounted } = Vue;
+createApp({
+  setup() {
+    const navHtml = computed(() => ImsNav.render('stocktake.html'));
+    const list = ref([]), loading = ref(false), warehouses = ref([]), createDlg = ref(false), form = ref({ warehouseId: null });
+    const countDlg = ref(false), countItems = ref([]), currentStId = ref(null);
+    async function load() { loading.value = true; try { list.value = (await ImsAuth.api('/stocktakes?page=0&size=50')).items; } finally { loading.value = false; } }
+    async function doCreate() {
+      await ImsAuth.api('/stocktakes', { method:'POST', body: JSON.stringify({ warehouseId: form.value.warehouseId, scope: 'ALL' }) });
+      createDlg.value = false; load();
+    }
+    async function doLock(row) { await ImsAuth.api(`/stocktakes/${row.id}/lock`, { method:'POST' }); load(); }
+    async function openCount(row) {
+      currentStId.value = row.id;
+      countItems.value = await ImsAuth.api(`/stocktakes/${row.id}/items`);
+      countItems.value.forEach(i => { if (i.countedQty == null) i.countedQty = i.snapshotQty; });
+      countDlg.value = true;
+    }
+    async function saveCounts() {
+      for (const item of countItems.value) {
+        await ImsAuth.api(`/stocktakes/${currentStId.value}/items/${item.id}`, { method:'PUT', body: JSON.stringify({ countedQty: item.countedQty }) });
+      }
+      countDlg.value = false; load();
+    }
+    async function doSubmit(row) { await ImsAuth.api(`/stocktakes/${row.id}/submit`, { method:'POST' }); load(); }
+    async function doApprove(row) { await ImsAuth.api(`/stocktakes/${row.id}/approve`, { method:'POST' }); load(); }
+    onMounted(async () => {
+      if (!ImsAuth.requireAuth()) return;
+      warehouses.value = (await ImsAuth.api('/warehouses?page=0&size=100')).items;
+      load();
+    });
+    return { navHtml, list, loading, warehouses, createDlg, form, countDlg, countItems, load, doCreate, doLock, openCount, saveCounts, doSubmit, doApprove };
+  }
+}).use(ElementPlus).mount('#app');
+</script>
+</body>
+</html>
