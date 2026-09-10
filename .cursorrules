@@ -1,0 +1,7 @@
+# 项目规则配置 (.cursorrules)
+- 架构规范：采用标准的 SpringBoot 三层架构（Controller -> Service -> Repository/Dao -> Entity）。
+- 持久层框架：使用 Spring Data JPA。
+- 数据返回格式：统一使用 Result<T> 包裹（包含 code, message, data）。
+- 实体类：统一使用 Lombok 注解，包含实体映射及关系配置。
+- 业务逻辑约束：出库操作时，必须校验库存是否充足，并在事务中扣减库存；入库操作必须在事务中增加库存。
+- 前端规范：前端采用单文件 HTML + Vue 3 (CDN) + Element Plus (CDN) 实现，放于 src/main/resources/static/ 下。

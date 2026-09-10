@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>登录 - IMS</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://unpkg.com/element-plus"></script>
+  <script src="/js/auth.js"></script>
+</head>
+<body class="bg-gradient-to-br from-slate-900 via-slate-800 to-brand-900 min-h-screen flex items-center justify-center p-4">
+<div id="app" class="w-full max-w-md">
+  <div class="text-center mb-8">
+    <h1 class="text-3xl font-bold text-white">IMS 库存管理系统</h1>
+    <p class="text-slate-400 mt-2 text-sm">Inventory Management System</p>
+  </div>
+  <div class="bg-white rounded-2xl shadow-xl p-8">
+    <h2 class="text-xl font-semibold text-slate-800 mb-6">账号登录</h2>
+    <el-form :model="form" @submit.prevent="login">
+      <el-form-item>
+        <el-input v-model="form.username" placeholder="用户名" size="large" prefix-icon="User" />
+      </el-form-item>
+      <el-form-item>
+        <el-input v-model="form.password" type="password" placeholder="密码" size="large" show-password
+                  @keyup.enter="login" />
+      </el-form-item>
+      <el-checkbox v-model="form.remember" class="mb-4">记住我</el-checkbox>
+      <el-button type="primary" size="large" class="w-full" :loading="loading" @click="login">登 录</el-button>
+    </el-form>
+    <p class="text-xs text-slate-400 mt-6 text-center">默认账号 admin / admin123</p>
+  </div>
+</div>
+<script>
+const { createApp, reactive, ref, onMounted } = Vue;
+
+createApp({
+  setup() {
+    const loading = ref(false);
+    const form = reactive({ username: 'admin', password: 'admin123', remember: true });
+
+    onMounted(() => {
+      if (ImsAuth.getToken()) {
+        const params = new URLSearchParams(location.search);
+        location.href = params.get('redirect') || '/index.html';
+      }
+    });
+
+    async function login() {
+      if (!form.username || !form.password) {
+        return ElementPlus.ElMessage.warning('请输入用户名和密码');
+      }
+      loading.value = true;
+      try {
+        const data = await ImsAuth.api('/auth/login', {
+          method: 'POST',
+          body: JSON.stringify({ username: form.username, password: form.password })
+        });
+        ImsAuth.setSession(data.token, data.user, data.permissions);
+        const params = new URLSearchParams(location.search);
+        location.href = params.get('redirect') || '/index.html';
+      } catch (e) {
+        ElementPlus.ElMessage.error(e.message);
+      } finally {
+        loading.value = false;
+      }
+    }
+
+    return { form, loading, login };
+  }
+}).use(ElementPlus).mount('#app');
+</script>
+</body>
+</html>

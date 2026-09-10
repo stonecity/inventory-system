@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>商品分类 - IMS</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://unpkg.com/element-plus"></script>
+  <script src="/js/auth.js"></script>
+  <script>tailwind.config = { theme: { extend: { colors: { brand: { 600: '#2563eb' } } } } }</script>
+</head>
+<body class="bg-slate-50">
+<div id="app" class="flex min-h-screen">
+  <aside class="w-64 bg-slate-900 text-white flex flex-col shrink-0">
+    <div class="px-6 py-5 border-b border-slate-700"><h1 class="text-lg font-bold">IMS 库存管理</h1></div>
+    <nav class="flex-1 px-3 py-4 space-y-1">
+      <a href="index.html" class="nav-link">🏠 首页</a>
+      <a href="categories.html" class="nav-link active">🗂️ 商品分类</a>
+      <a href="skus.html" class="nav-link">📦 商品 SKU</a>
+      <a href="warehouses.html" class="nav-link">🏭 仓库管理</a>
+    </nav>
+    <div class="px-6 py-4 border-t border-slate-700 text-xs text-slate-400">{{ user?.realName }}</div>
+  </aside>
+
+  <main class="flex-1 flex flex-col min-w-0">
+    <header class="bg-white border-b border-slate-200 px-8 py-4 flex items-center justify-between">
+      <div>
+        <h2 class="text-xl font-semibold text-slate-800">商品分类</h2>
+        <p class="text-sm text-slate-500 mt-0.5">树形维护商品分类层级</p>
+      </div>
+      <div class="flex gap-2 items-center">
+        <el-button v-if="canWrite" type="primary" @click="openCreate(null)">新增根分类</el-button>
+        <el-button @click="ImsAuth.logout()">退出</el-button>
+      </div>
+    </header>
+
+    <div class="flex-1 p-8">
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 max-w-2xl">
+        <el-tree
+          v-loading="loading"
+          :data="tree"
+          node-key="id"
+          default-expand-all
+          :expand-on-click-node="false"
+          :props="{ label: 'name', children: 'children' }"
+        >
+          <template #default="{ node, data }">
+            <div class="flex items-center justify-between w-full pr-4 group">
+              <span>{{ data.name }} <span class="text-xs text-slate-400">(#{{ data.sortOrder }})</span></span>
+              <span v-if="canWrite" class="opacity-0 group-hover:opacity-100 transition">
+                <el-button link type="primary" size="small" @click.stop="openCreate(data)">子分类</el-button>
+                <el-button link type="primary" size="small" @click.stop="openEdit(data)">编辑</el-button>
+                <el-button link type="danger" size="small" @click.stop="remove(data)">删除</el-button>
+              </span>
+            </div>
+          </template>
+        </el-tree>
+        <el-empty v-if="!loading && !tree.length" description="暂无分类" />
+      </div>
+    </div>
+
+    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="420px" destroy-on-close>
+      <el-form :model="form" label-width="80px">
+        <el-form-item label="分类名称" required>
+          <el-input v-model="form.name" />
+        </el-form-item>
+        <el-form-item label="排序">
+          <el-input-number v-model="form.sortOrder" :min="0" class="w-full" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="submitting" @click="submit">确定</el-button>
+      </template>
+    </el-dialog>
+  </main>
+</div>
+<style>
+  .nav-link { display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:8px; font-size:14px; color:#cbd5e1; transition:.15s; }
+  .nav-link:hover { background:#1e293b; color:#fff; }
+  .nav-link.active { background:#2563eb; color:#fff; font-weight:500; }
+</style>
+<script>
+const { createApp, ref, reactive, computed, onMounted } = Vue;
+
+createApp({
+  setup() {
+    const user = ref(ImsAuth.getUser());
+    const canWrite = computed(() => ImsAuth.hasPermission('sku:write'));
+    const loading = ref(false);
+    const submitting = ref(false);
+    const tree = ref([]);
+    const dialogVisible = ref(false);
+    const isEdit = ref(false);
+    const editId = ref(null);
+    const parentId = ref(null);
+    const form = reactive({ name: '', sortOrder: 0 });
+    const dialogTitle = computed(() => isEdit.value ? '编辑分类' : (parentId.value ? '新增子分类' : '新增根分类'));
+
+    async function loadTree() {
+      loading.value = true;
+      try {
+        tree.value = await ImsAuth.api('/categories');
+      } catch (e) {
+        ElementPlus.ElMessage.error(e.message);
+      } finally {
+        loading.value = false;
+      }
+    }
+
+    function openCreate(parent) {
+      isEdit.value = false;
+      editId.value = null;
+      parentId.value = parent ? parent.id : null;
+      form.name = '';
+      form.sortOrder = 0;
+      dialogVisible.value = true;
+    }
+
+    function openEdit(data) {
+      isEdit.value = true;
+      editId.value = data.id;
+      parentId.value = null;
+      form.name = data.name;
+      form.sortOrder = data.sortOrder || 0;
+      dialogVisible.value = true;
+    }
+
+    async function submit() {
+      if (!form.name.trim()) return ElementPlus.ElMessage.warning('请输入分类名称');
+      submitting.value = true;
+      try {
+        if (isEdit.value) {
+          await ImsAuth.api('/categories/' + editId.value, {
+            method: 'PUT', body: JSON.stringify({ name: form.name, sortOrder: form.sortOrder })
+          });
+        } else {
+          await ImsAuth.api('/categories', {
+            method: 'POST',
+            body: JSON.stringify({ name: form.name, parentId: parentId.value, sortOrder: form.sortOrder })
+          });
+        }
+        ElementPlus.ElMessage.success('保存成功');
+        dialogVisible.value = false;
+        loadTree();
+      } catch (e) {
+        ElementPlus.ElMessage.error(e.message);
+      } finally {
+        submitting.value = false;
+      }
+    }
+
+    async function remove(data) {
+      try {
+        await ElementPlus.ElMessageBox.confirm(`确定删除分类「${data.name}」？`, '确认', { type: 'warning' });
+        await ImsAuth.api('/categories/' + data.id, { method: 'DELETE' });
+        ElementPlus.ElMessage.success('删除成功');
+        loadTree();
+      } catch (e) {
+        if (e !== 'cancel') ElementPlus.ElMessage.error(e.message || e);
+      }
+    }
+
+    onMounted(() => {
+      if (!ImsAuth.requireAuth()) return;
+      user.value = ImsAuth.getUser();
+      loadTree();
+    });
+
+    return {
+      user, canWrite, loading, submitting, tree, dialogVisible, form, dialogTitle,
+      openCreate, openEdit, submit, remove, ImsAuth
+    };
+  }
+}).use(ElementPlus).mount('#app');
+</script>
+</body>
+</html>

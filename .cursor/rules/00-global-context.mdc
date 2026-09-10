@@ -1,0 +1,20 @@
+---
+description: IMS 全局 Context：架构铁律、库存不变量、包结构与 Agent 协议
+alwaysApply: true
+---
+
+# IMS 全局 Context
+
+实现或修改代码前，以 `docs/CONTEXT.md` 为全局上下文，以 `docs/PRD.md` 为需求细节。二者与 `.cursorrules` 冲突时：不变量与状态机以 PRD 为准，工程约定以 CONTEXT 为准。
+
+## 必须遵守
+
+- 三层架构：`Controller → Service → Repository → Entity`。Controller 不开事务、不直接写库存。
+- 统一响应：`Result<T> { code, message, data }`，成功 `code = 0`；错误码用 PRD §8，不另造。
+- 实体用 Lombok + JPA 映射；持久层只用 Spring Data JPA。
+- **唯一库存写入口**：只允许 `InventoryService` 的 `increase / reserve / release / deduct / adjust`（及调拨在途原子方法）修改 `inventory`。其它层禁止 `save` 改数量。
+- 出入库必须在 `@Transactional(rollbackFor = Exception.class)` 中完成：出库先校验 `available`/`reserved` 再扣减；入库增加库存。`inventory` 与 `inventory_log` 同事务；日志只增，回滚靠反向新日志。
+- 库存不变量：`available = on_hand - reserved`，三者均 `>= 0`。销售出库两阶段：预留改 available/reserved，出库改 on_hand/reserved、不再改 available。
+- 前端：单文件 HTML + Vue 3 CDN + Element Plus CDN，目录 `src/main/resources/static/`。不要改成 npm/Vite 工程。
+- `inventory-system.sql` 是旧基线，禁止在 `product.stock` / `stock_in` / `stock_out` 上继续加功能；按 PRD 迁移到 SKU + 多仓 `inventory` + `stock_movement`。
+- v1 不引入 Redis、消息队列；生产 DDL 不用 `ddl-auto: update`。

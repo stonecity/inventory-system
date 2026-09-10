@@ -1,0 +1,20 @@
+spring:
+  application:
+    name: inventory
+  datasource:
+    url: jdbc:mysql://localhost:3306/inventory_system?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+    username: root
+    password: 123456
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+
+ims:
+  jwt:
+    secret: ims-dev-secret-key-change-in-production-min-256-bits-long!!
+    expiration-ms: 86400000
