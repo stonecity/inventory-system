@@ -2,6 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>客户 - IMS</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
@@ -9,35 +10,279 @@
   <script src="https://unpkg.com/element-plus"></script>
   <script src="/js/auth.js"></script>
   <script src="/js/nav.js"></script>
+  <script>
+    tailwind.config = { theme: { extend: { colors: { brand: { 600: '#2563eb' } } } } }
+  </script>
 </head>
 <body class="bg-slate-50">
 <div id="app" class="flex min-h-screen">
   <aside class="w-64 bg-slate-900 text-white flex flex-col shrink-0">
     <div class="px-6 py-5 border-b border-slate-700"><h1 class="text-lg font-bold">IMS 库存管理</h1></div>
-    <nav class="flex-1 px-3 py-4 space-y-1" v-html="navHtml"></nav>
+    <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto" v-html="navHtml"></nav>
+    <div class="px-6 py-4 border-t border-slate-700 text-xs text-slate-400">{{ user?.realName }}</div>
   </aside>
-  <main class="flex-1 p-8">
-    <div class="flex justify-between mb-4"><h2 class="text-xl font-semibold">客户</h2><el-button type="primary" @click="dlg=true">新增</el-button></div>
-    <el-table :data="list" stripe border>
-      <el-table-column prop="code" label="编码" width="120" /><el-table-column prop="name" label="名称" /><el-table-column prop="phone" label="电话" width="140" />
-    </el-table>
-    <el-dialog v-model="dlg" title="新增客户" width="480px">
-      <el-form label-width="80px"><el-form-item label="编码"><el-input v-model="form.code" /></el-form-item><el-form-item label="名称"><el-input v-model="form.name" /></el-form-item><el-form-item label="电话"><el-input v-model="form.phone" /></el-form-item></el-form>
-      <template #footer><el-button type="primary" @click="save">保存</el-button></template>
+
+  <main class="flex-1 flex flex-col min-w-0">
+    <header class="bg-white border-b border-slate-200 px-8 py-4 flex items-center justify-between">
+      <div>
+        <h2 class="text-xl font-semibold text-slate-800">客户</h2>
+        <p class="text-sm text-slate-500 mt-0.5">维护销售往来单位，供销售出库与退货单据选用</p>
+      </div>
+      <div class="flex gap-2">
+        <el-button v-if="canWrite" type="primary" @click="openCreate">新增客户</el-button>
+        <el-button @click="ImsAuth.logout()">退出</el-button>
+      </div>
+    </header>
+
+    <div class="flex-1 p-8 space-y-4">
+      <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+        <div class="flex flex-wrap gap-3 items-end">
+          <div class="flex-1 min-w-[200px]">
+            <label class="block text-xs text-slate-500 mb-1">关键字</label>
+            <el-input v-model="query.keyword" placeholder="编码 / 名称 / 联系人 / 电话" clearable @keyup.enter="search"></el-input>
+          </div>
+          <div class="w-40">
+            <label class="block text-xs text-slate-500 mb-1">状态</label>
+            <el-select v-model="query.status" placeholder="全部" clearable class="w-full">
+              <el-option label="启用" :value="1"></el-option>
+              <el-option label="停用" :value="0"></el-option>
+            </el-select>
+          </div>
+          <el-button type="primary" @click="search">查询</el-button>
+          <el-button @click="resetQuery">重置</el-button>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <el-table :data="list" v-loading="loading" stripe style="width: 100%" empty-text="暂无客户">
+          <el-table-column prop="code" label="编码" min-width="120" show-overflow-tooltip></el-table-column>
+          <el-table-column prop="name" label="名称" min-width="180" show-overflow-tooltip></el-table-column>
+          <el-table-column prop="contactPerson" label="联系人" width="110">
+            <template #default="{ row }">{{ row.contactPerson || '-' }}</template>
+          </el-table-column>
+          <el-table-column prop="phone" label="电话" min-width="140">
+            <template #default="{ row }">{{ row.phone || '-' }}</template>
+          </el-table-column>
+          <el-table-column prop="address" label="地址" min-width="200" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.address || '-' }}</template>
+          </el-table-column>
+          <el-table-column label="状态" width="90" align="center">
+            <template #default="{ row }">
+              <el-tag :type="row.status === 1 ? 'success' : 'info'" size="small">
+                {{ row.status === 1 ? '启用' : '停用' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="remark" label="备注" min-width="140" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.remark || '-' }}</template>
+          </el-table-column>
+          <el-table-column v-if="canWrite" label="操作" width="160" fixed="right" align="center">
+            <template #default="{ row }">
+              <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
+              <el-button link :type="row.status === 1 ? 'warning' : 'success'" @click="toggleStatus(row)">
+                {{ row.status === 1 ? '停用' : '启用' }}
+              </el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <div class="px-4 py-3 border-t border-slate-100 flex justify-end">
+          <el-pagination
+            v-model:current-page="page"
+            v-model:page-size="size"
+            :total="total"
+            :page-sizes="[10, 20, 50]"
+            layout="total, sizes, prev, pager, next"
+            @change="loadList"
+          ></el-pagination>
+        </div>
+      </div>
+    </div>
+
+    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑客户' : '新增客户'" width="520px" destroy-on-close>
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="88px">
+        <el-form-item label="编码" prop="code">
+          <el-input v-model="form.code" :disabled="isEdit" maxlength="30" placeholder="如：CUS-TM"></el-input>
+        </el-form-item>
+        <el-form-item label="名称" prop="name">
+          <el-input v-model="form.name" maxlength="100" show-word-limit placeholder="客户全称"></el-input>
+        </el-form-item>
+        <el-form-item label="联系人">
+          <el-input v-model="form.contactPerson" maxlength="50" placeholder="可选"></el-input>
+        </el-form-item>
+        <el-form-item label="电话">
+          <el-input v-model="form.phone" maxlength="20" placeholder="可选"></el-input>
+        </el-form-item>
+        <el-form-item label="地址">
+          <el-input v-model="form.address" maxlength="200" placeholder="可选"></el-input>
+        </el-form-item>
+        <el-form-item label="备注">
+          <el-input v-model="form.remark" type="textarea" :rows="2" maxlength="255" show-word-limit placeholder="可选"></el-input>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="submitting" @click="submitForm">确定</el-button>
+      </template>
     </el-dialog>
   </main>
 </div>
-<style>.nav-link{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;font-size:14px;color:#cbd5e1}.nav-link.active{background:#2563eb;color:#fff}</style>
+<style>
+  .nav-link { display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:8px; font-size:14px; color:#cbd5e1; }
+  .nav-link:hover { background:#1e293b; color:#fff; }
+  .nav-link.active { background:#2563eb; color:#fff; font-weight:500; }
+  .el-table table { width:100% !important; border-collapse:separate !important; }
+  .el-table th.el-table__cell, .el-table td.el-table__cell { display:table-cell !important; }
+  .el-pagination { flex-wrap:wrap; }
+</style>
 <script>
-const { createApp, ref, computed, onMounted } = Vue;
+const { createApp, ref, reactive, computed, onMounted } = Vue;
+
 createApp({
   setup() {
+    const user = ref(ImsAuth.getUser());
     const navHtml = computed(() => ImsNav.render('customers.html'));
-    const list = ref([]), dlg = ref(false), form = ref({ code:'', name:'', phone:'' });
-    async function load() { list.value = (await ImsAuth.api('/customers?page=0&size=100')).items; }
-    async function save() { await ImsAuth.api('/customers', { method:'POST', body: JSON.stringify(form.value) }); dlg.value=false; load(); }
-    onMounted(() => { if (ImsAuth.requireAuth()) load(); });
-    return { navHtml, list, dlg, form, save };
+    const canWrite = computed(() => ImsAuth.hasPermission('partner:write'));
+    const loading = ref(false);
+    const submitting = ref(false);
+    const list = ref([]);
+    const total = ref(0);
+    const page = ref(1);
+    const size = ref(20);
+    const query = reactive({ keyword: '', status: null });
+    const dialogVisible = ref(false);
+    const isEdit = ref(false);
+    const editId = ref(null);
+    const formRef = ref(null);
+    const form = reactive({
+      code: '',
+      name: '',
+      contactPerson: '',
+      phone: '',
+      address: '',
+      remark: ''
+    });
+    const rules = {
+      code: [{ required: true, message: '请输入客户编码', trigger: 'blur' }],
+      name: [{ required: true, message: '请输入客户名称', trigger: 'blur' }]
+    };
+
+    async function loadList() {
+      loading.value = true;
+      try {
+        const params = new URLSearchParams({ page: page.value - 1, size: size.value });
+        if (query.keyword) params.set('keyword', query.keyword);
+        if (query.status != null) params.set('status', query.status);
+        const data = await ImsAuth.api('/customers?' + params);
+        list.value = data.items || [];
+        total.value = data.total || 0;
+      } catch (e) {
+        ElementPlus.ElMessage.error(e.message);
+      } finally {
+        loading.value = false;
+      }
+    }
+
+    function search() {
+      page.value = 1;
+      loadList();
+    }
+
+    function resetQuery() {
+      query.keyword = '';
+      query.status = null;
+      page.value = 1;
+      loadList();
+    }
+
+    function resetForm() {
+      form.code = '';
+      form.name = '';
+      form.contactPerson = '';
+      form.phone = '';
+      form.address = '';
+      form.remark = '';
+    }
+
+    function openCreate() {
+      isEdit.value = false;
+      editId.value = null;
+      resetForm();
+      dialogVisible.value = true;
+    }
+
+    function openEdit(row) {
+      isEdit.value = true;
+      editId.value = row.id;
+      form.code = row.code || '';
+      form.name = row.name || '';
+      form.contactPerson = row.contactPerson || '';
+      form.phone = row.phone || '';
+      form.address = row.address || '';
+      form.remark = row.remark || '';
+      dialogVisible.value = true;
+    }
+
+    function trimOrNull(value) {
+      const text = (value || '').trim();
+      return text || null;
+    }
+
+    async function submitForm() {
+      await formRef.value.validate();
+      submitting.value = true;
+      try {
+        const body = {
+          name: form.name.trim(),
+          contactPerson: trimOrNull(form.contactPerson),
+          phone: trimOrNull(form.phone),
+          address: trimOrNull(form.address),
+          remark: trimOrNull(form.remark)
+        };
+        if (isEdit.value) {
+          await ImsAuth.api('/customers/' + editId.value, { method: 'PUT', body: JSON.stringify(body) });
+          ElementPlus.ElMessage.success('更新成功');
+        } else {
+          body.code = form.code.trim();
+          await ImsAuth.api('/customers', { method: 'POST', body: JSON.stringify(body) });
+          ElementPlus.ElMessage.success('创建成功');
+        }
+        dialogVisible.value = false;
+        loadList();
+      } catch (e) {
+        ElementPlus.ElMessage.error(e.message);
+      } finally {
+        submitting.value = false;
+      }
+    }
+
+    async function toggleStatus(row) {
+      const newStatus = row.status === 1 ? 0 : 1;
+      const action = newStatus === 0 ? '停用' : '启用';
+      try {
+        await ElementPlus.ElMessageBox.confirm(`确定${action}客户「${row.name}」？`, '确认');
+        await ImsAuth.api('/customers/' + row.id + '/status', {
+          method: 'PUT',
+          body: JSON.stringify({ status: newStatus })
+        });
+        ElementPlus.ElMessage.success(action + '成功');
+        loadList();
+      } catch (e) {
+        if (e !== 'cancel') ElementPlus.ElMessage.error(e.message || e);
+      }
+    }
+
+    onMounted(() => {
+      if (!ImsAuth.requireAuth()) return;
+      user.value = ImsAuth.getUser();
+      loadList();
+    });
+
+    return {
+      user, navHtml, canWrite, ImsAuth,
+      loading, submitting, list, total, page, size, query,
+      dialogVisible, isEdit, formRef, form, rules,
+      loadList, search, resetQuery, openCreate, openEdit, submitForm, toggleStatus
+    };
   }
 }).use(ElementPlus).mount('#app');
 </script>

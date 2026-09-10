@@ -2,11 +2,13 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>报表中心 - IMS</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
   <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
   <script src="https://unpkg.com/element-plus"></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
   <script src="/js/auth.js"></script>
   <script src="/js/nav.js"></script>
 </head>
@@ -15,61 +17,586 @@
   <aside class="w-64 bg-slate-900 text-white flex flex-col shrink-0">
     <div class="px-6 py-5 border-b border-slate-700"><h1 class="text-lg font-bold">IMS 库存管理</h1></div>
     <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto" v-html="navHtml"></nav>
+    <div class="px-6 py-4 border-t border-slate-700 text-xs text-slate-400">{{ user?.realName }}</div>
   </aside>
-  <main class="flex-1 p-8">
-    <h2 class="text-xl font-semibold mb-4">报表中心</h2>
-    <el-tabs>
-      <el-tab-pane label="出入库汇总">
-        <div class="mb-3 flex gap-3">
-          <el-select v-model="wh" placeholder="仓库" clearable style="width:180px">
-            <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
-          </el-select>
-          <el-button type="primary" @click="loadSummary">查询</el-button>
-        </div>
-        <el-table :data="summary" border>
-          <el-table-column prop="type" label="类型" />
-          <el-table-column prop="warehouseName" label="仓库" />
-          <el-table-column prop="orderCount" label="单数" width="80" />
-          <el-table-column prop="totalQty" label="数量" width="80" />
-          <el-table-column prop="totalAmount" label="金额" width="120" />
-        </el-table>
-      </el-tab-pane>
-      <el-tab-pane label="库龄分析">
-        <el-button class="mb-3" type="primary" @click="loadAge">刷新</el-button>
-        <el-table :data="ages" border>
-          <el-table-column prop="skuCode" label="SKU" />
-          <el-table-column prop="warehouseName" label="仓库" />
-          <el-table-column prop="onHandQty" label="在库" width="80" />
-          <el-table-column prop="ageDays" label="库龄(天)" width="100" />
-          <el-table-column prop="lastInboundAt" label="最近入库" />
-        </el-table>
-      </el-tab-pane>
-    </el-tabs>
+
+  <main class="flex-1 flex flex-col min-w-0">
+    <header class="bg-white border-b border-slate-200 px-8 py-4 flex items-center justify-between">
+      <div>
+        <h2 class="text-xl font-semibold text-slate-800">报表中心</h2>
+        <p class="text-sm text-slate-500 mt-0.5">出入库汇总与库龄分析，支持按仓库、时间段筛选并导出</p>
+      </div>
+      <el-button @click="ImsAuth.logout()">退出</el-button>
+    </header>
+
+    <div class="flex-1 p-8 min-w-0">
+      <el-tabs v-model="tab" @tab-change="onTabChange">
+        <el-tab-pane label="出入库汇总" name="summary">
+          <div class="bg-white rounded-xl border border-slate-200 p-4 mb-4 shadow-sm">
+            <div class="flex flex-wrap gap-3 items-end">
+              <div>
+                <label class="block text-xs text-slate-500 mb-1">时间范围</label>
+                <el-radio-group v-model="period" size="default" @change="applyPeriod">
+                  <el-radio-button label="7">近 7 天</el-radio-button>
+                  <el-radio-button label="30">近 30 天</el-radio-button>
+                  <el-radio-button label="90">近 90 天</el-radio-button>
+                  <el-radio-button label="all">全部</el-radio-button>
+                </el-radio-group>
+              </div>
+              <div class="w-64">
+                <label class="block text-xs text-slate-500 mb-1">自定义日期</label>
+                <el-date-picker
+                  v-model="dateRange"
+                  type="daterange"
+                  unlink-panels
+                  clearable
+                  range-separator="至"
+                  start-placeholder="开始"
+                  end-placeholder="结束"
+                  value-format="YYYY-MM-DD"
+                  style="width: 100%"
+                  @change="onCustomDate"
+                />
+              </div>
+              <div class="w-48">
+                <label class="block text-xs text-slate-500 mb-1">仓库</label>
+                <el-select v-model="summaryWh" placeholder="全部仓库" clearable filterable class="w-full">
+                  <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
+                </el-select>
+              </div>
+              <el-button type="primary" @click="loadSummary" :loading="summaryLoading">查询</el-button>
+              <el-button @click="resetSummary">重置</el-button>
+              <el-button @click="exportSummary" :disabled="!summary.length">导出 CSV</el-button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
+            <div class="stat-card">
+              <div class="stat-label">入库数量</div>
+              <div class="stat-value text-emerald-600">{{ formatQty(kpis.inQty) }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">入库金额</div>
+              <div class="stat-value text-emerald-600">{{ formatAmount(kpis.inAmount) }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">出库数量</div>
+              <div class="stat-value text-red-600">{{ formatQty(kpis.outQty) }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">出库金额</div>
+              <div class="stat-value text-red-600">{{ formatAmount(kpis.outAmount) }}</div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-5 gap-4 mb-4">
+            <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-4 lg:col-span-3 min-w-0">
+              <h3 class="font-semibold text-slate-800 mb-2">数量按单据类型</h3>
+              <div v-show="summary.length" ref="qtyChartEl" style="height:280px"></div>
+              <div v-if="!summary.length && !summaryLoading" class="h-[280px] flex items-center justify-center text-sm text-slate-400">暂无汇总数据</div>
+            </div>
+            <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-4 lg:col-span-2 min-w-0">
+              <h3 class="font-semibold text-slate-800 mb-2">数量构成</h3>
+              <div v-show="summary.length" ref="pieChartEl" style="height:280px"></div>
+              <div v-if="!summary.length && !summaryLoading" class="h-[280px] flex items-center justify-center text-sm text-slate-400">暂无汇总数据</div>
+            </div>
+          </div>
+
+          <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <el-table
+              :data="summary"
+              v-loading="summaryLoading"
+              stripe
+              style="width: 100%"
+              empty-text="暂无出入库汇总"
+              show-summary
+              :summary-method="summaryTotals"
+            >
+              <el-table-column label="类型" min-width="130">
+                <template #default="{ row }">
+                  <el-tag :type="typeTag(row.type)" size="small">{{ typeLabel(row.type) }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="warehouseName" label="仓库" min-width="140" show-overflow-tooltip>
+                <template #default="{ row }">{{ row.warehouseName || '-' }}</template>
+              </el-table-column>
+              <el-table-column label="方向" width="90" align="center">
+                <template #default="{ row }">
+                  <span :class="dirClass(row.type)">{{ dirLabel(row.type) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="orderCount" label="单数" width="100" align="right">
+                <template #default="{ row }">{{ formatQty(row.orderCount) }}</template>
+              </el-table-column>
+              <el-table-column prop="totalQty" label="数量" width="120" align="right">
+                <template #default="{ row }">
+                  <span class="font-medium tabular-nums">{{ formatQty(row.totalQty) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="totalAmount" label="金额" min-width="140" align="right">
+                <template #default="{ row }">
+                  <span class="tabular-nums">{{ formatAmount(row.totalAmount) }}</span>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </el-tab-pane>
+
+        <el-tab-pane label="库龄分析" name="age">
+          <div class="bg-white rounded-xl border border-slate-200 p-4 mb-4 shadow-sm">
+            <div class="flex flex-wrap gap-3 items-end">
+              <div class="w-48">
+                <label class="block text-xs text-slate-500 mb-1">仓库</label>
+                <el-select v-model="ageWh" placeholder="全部仓库" clearable filterable class="w-full">
+                  <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
+                </el-select>
+              </div>
+              <el-button type="primary" @click="loadAge" :loading="ageLoading">查询</el-button>
+              <el-button @click="resetAge">重置</el-button>
+              <el-button @click="exportAge" :disabled="!ages.length">导出 CSV</el-button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-4">
+            <div v-for="b in ageBuckets" :key="b.key" class="stat-card">
+              <div class="flex items-center justify-between">
+                <div class="stat-label">{{ b.label }}</div>
+                <el-tag :type="b.tag" size="small">{{ b.skuCount }} SKU</el-tag>
+              </div>
+              <div class="stat-value" :class="b.valueClass">{{ formatQty(b.qty) }}</div>
+              <div class="mt-2 bar-track">
+                <div class="bar-fill" :class="b.barClass" :style="{ width: ageBarWidth(b.qty) }"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-4 mb-4 min-w-0">
+            <h3 class="font-semibold text-slate-800 mb-2">在库数量按库龄区间</h3>
+            <div v-show="ages.length" ref="ageChartEl" style="height:240px"></div>
+            <div v-if="!ages.length && !ageLoading" class="h-[240px] flex items-center justify-center text-sm text-slate-400">暂无在库数据</div>
+          </div>
+
+          <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <el-table
+              :data="ages"
+              v-loading="ageLoading"
+              stripe
+              style="width: 100%"
+              :height="ageTableHeight"
+              empty-text="暂无库龄数据"
+              :row-class-name="ageRowClass"
+            >
+              <el-table-column prop="skuCode" label="SKU" min-width="150" show-overflow-tooltip>
+                <template #default="{ row }">
+                  <span class="font-medium">{{ row.skuCode || '-' }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="warehouseName" label="仓库" min-width="140" show-overflow-tooltip>
+                <template #default="{ row }">{{ row.warehouseName || '-' }}</template>
+              </el-table-column>
+              <el-table-column prop="onHandQty" label="在库" width="100" align="right">
+                <template #default="{ row }">
+                  <span class="tabular-nums font-medium">{{ formatQty(row.onHandQty) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="库龄" width="130" align="center">
+                <template #default="{ row }">
+                  <el-tag :type="ageTag(row.ageDays)" size="small">{{ row.ageDays }} 天</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="区间" width="120" align="center">
+                <template #default="{ row }">{{ ageBucketLabel(row.ageDays) }}</template>
+              </el-table-column>
+              <el-table-column label="最近入库" min-width="170">
+                <template #default="{ row }">{{ formatTime(row.lastInboundAt) }}</template>
+              </el-table-column>
+            </el-table>
+          </div>
+        </el-tab-pane>
+      </el-tabs>
+    </div>
   </main>
 </div>
-<style>.nav-link{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;font-size:14px;color:#cbd5e1}.nav-link.active{background:#2563eb;color:#fff}</style>
+<style>
+.nav-link{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;font-size:14px;color:#cbd5e1}
+.nav-link:hover{background:#1e293b;color:#fff}
+.nav-link.active{background:#2563eb;color:#fff;font-weight:500}
+.el-table table{width:100% !important;border-collapse:separate !important}
+.el-table th.el-table__cell,.el-table td.el-table__cell{display:table-cell !important}
+.stat-card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:20px}
+.stat-label{font-size:.875rem;color:#64748b}
+.stat-value{font-size:1.75rem;font-weight:700;color:#1e293b;margin-top:8px}
+.bar-track{height:6px;background:#f1f5f9;border-radius:999px;overflow:hidden}
+.bar-fill{height:100%;border-radius:999px;background:#2563eb}
+.bar-fill.b-ok{background:linear-gradient(90deg,#6ee7b7,#059669)}
+.bar-fill.b-mid{background:linear-gradient(90deg,#93c5fd,#2563eb)}
+.bar-fill.b-warn{background:linear-gradient(90deg,#fcd34d,#d97706)}
+.bar-fill.b-bad{background:linear-gradient(90deg,#fca5a5,#dc2626)}
+.el-table .row-age-warn td{background:#fffbeb !important}
+.el-table .row-age-bad td{background:#fef2f2 !important}
+.tabular-nums{font-variant-numeric:tabular-nums}
+</style>
 <script>
-const { createApp, ref, computed, onMounted } = Vue;
+const { createApp, ref, computed, onMounted, onBeforeUnmount, nextTick } = Vue;
+
+const TYPE_MAP = {
+  PURCHASE_IN: { l: '采购入库', tag: 'success', dir: 'in' },
+  SALE_OUT: { l: '销售出库', tag: 'danger', dir: 'out' },
+  TRANSFER: { l: '调拨', tag: 'warning', dir: 'other' },
+  SALE_RETURN: { l: '销售退货', tag: '', dir: 'in' },
+  PURCHASE_RETURN: { l: '采购退货', tag: 'warning', dir: 'out' },
+  OTHER_IN: { l: '其他入库', tag: 'success', dir: 'in' },
+  OTHER_OUT: { l: '其他出库', tag: 'danger', dir: 'out' },
+  ADJUST: { l: '盘点调整', tag: 'info', dir: 'other' }
+};
+const TYPE_COLORS = {
+  PURCHASE_IN: '#10b981',
+  SALE_OUT: '#ef4444',
+  TRANSFER: '#f59e0b',
+  SALE_RETURN: '#34d399',
+  PURCHASE_RETURN: '#f97316',
+  OTHER_IN: '#14b8a6',
+  OTHER_OUT: '#f43f5e',
+  ADJUST: '#64748b'
+};
+const IN_TYPES = ['PURCHASE_IN', 'SALE_RETURN', 'OTHER_IN'];
+const OUT_TYPES = ['SALE_OUT', 'PURCHASE_RETURN', 'OTHER_OUT'];
+
 createApp({
   setup() {
     const navHtml = computed(() => ImsNav.render('reports.html'));
-    const warehouses = ref([]), wh = ref(null), summary = ref([]), ages = ref([]);
+    const user = ref(null);
+    const tab = ref('summary');
+    const warehouses = ref([]);
+
+    const period = ref('30');
+    const dateRange = ref(lastNDays(30));
+    const summaryWh = ref(null);
+    const summary = ref([]);
+    const summaryLoading = ref(false);
+    const qtyChartEl = ref(null);
+    const pieChartEl = ref(null);
+    let qtyChart, pieChart, ageChart;
+
+    const ageWh = ref(null);
+    const ages = ref([]);
+    const ageLoading = ref(false);
+    const ageChartEl = ref(null);
+    const ageTableHeight = computed(() => Math.max(360, window.innerHeight - 520));
+
+    const kpis = computed(() => {
+      let inQty = 0, inAmount = 0, outQty = 0, outAmount = 0;
+      for (const row of summary.value) {
+        const qty = Number(row.totalQty) || 0;
+        const amt = Number(row.totalAmount) || 0;
+        if (IN_TYPES.includes(row.type)) {
+          inQty += qty; inAmount += amt;
+        } else if (OUT_TYPES.includes(row.type)) {
+          outQty += qty; outAmount += amt;
+        }
+      }
+      return { inQty, inAmount, outQty, outAmount };
+    });
+
+    const ageBuckets = computed(() => {
+      const buckets = [
+        { key: '0-30', label: '0–30 天', tag: 'success', valueClass: 'text-emerald-600', barClass: 'b-ok', qty: 0, skuCount: 0, min: 0, max: 30 },
+        { key: '31-90', label: '31–90 天', tag: '', valueClass: 'text-blue-600', barClass: 'b-mid', qty: 0, skuCount: 0, min: 31, max: 90 },
+        { key: '91-180', label: '91–180 天', tag: 'warning', valueClass: 'text-amber-600', barClass: 'b-warn', qty: 0, skuCount: 0, min: 91, max: 180 },
+        { key: '180+', label: '180 天以上', tag: 'danger', valueClass: 'text-red-600', barClass: 'b-bad', qty: 0, skuCount: 0, min: 181, max: Infinity }
+      ];
+      for (const row of ages.value) {
+        const days = Number(row.ageDays) || 0;
+        const qty = Number(row.onHandQty) || 0;
+        const b = buckets.find(x => days >= x.min && days <= x.max) || buckets[3];
+        b.qty += qty;
+        b.skuCount += 1;
+      }
+      return buckets;
+    });
+
+    function lastNDays(n) {
+      const end = new Date();
+      const start = new Date();
+      start.setDate(end.getDate() - (n - 1));
+      const fmt = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      return [fmt(start), fmt(end)];
+    }
+    function typeLabel(v) { return (TYPE_MAP[v] && TYPE_MAP[v].l) || v || '-'; }
+    function typeTag(v) { return (TYPE_MAP[v] && TYPE_MAP[v].tag) || 'info'; }
+    function dirLabel(v) {
+      const d = TYPE_MAP[v] && TYPE_MAP[v].dir;
+      return d === 'in' ? '入库' : d === 'out' ? '出库' : '其他';
+    }
+    function dirClass(v) {
+      const d = TYPE_MAP[v] && TYPE_MAP[v].dir;
+      return d === 'in' ? 'text-emerald-600' : d === 'out' ? 'text-red-600' : 'text-slate-500';
+    }
+    function formatQty(n) {
+      if (n == null || n === '') return '-';
+      return Number(n).toLocaleString('zh-CN');
+    }
+    function formatAmount(v) {
+      if (v == null || v === '') return '-';
+      return Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    function formatTime(v) {
+      if (v == null || v === '') return '-';
+      const d = typeof v === 'number' ? new Date(v > 1e12 ? v : v * 1000) : new Date(v);
+      if (Number.isNaN(d.getTime())) return String(v);
+      const pad = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+    function ageTag(days) {
+      if (days <= 30) return 'success';
+      if (days <= 90) return '';
+      if (days <= 180) return 'warning';
+      return 'danger';
+    }
+    function ageBucketLabel(days) {
+      if (days <= 30) return '0–30 天';
+      if (days <= 90) return '31–90 天';
+      if (days <= 180) return '91–180 天';
+      return '180 天以上';
+    }
+    function ageRowClass({ row }) {
+      if (row.ageDays > 180) return 'row-age-bad';
+      if (row.ageDays > 90) return 'row-age-warn';
+      return '';
+    }
+    function ageBarWidth(qty) {
+      const max = Math.max(...ageBuckets.value.map(b => b.qty), 0);
+      if (!max || !qty) return '0%';
+      return Math.max(4, (qty / max) * 100) + '%';
+    }
+    function summaryTotals({ columns, data }) {
+      const sums = columns.map((col, i) => {
+        if (i === 0) return '合计';
+        if (col.property === 'orderCount' || col.property === 'totalQty') {
+          return data.reduce((s, r) => s + (Number(r[col.property]) || 0), 0).toLocaleString('zh-CN');
+        }
+        if (col.property === 'totalAmount') {
+          const v = data.reduce((s, r) => s + (Number(r.totalAmount) || 0), 0);
+          return v.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+        return '';
+      });
+      return sums;
+    }
+
+    let syncingPeriod = false;
+    function applyPeriod(val) {
+      syncingPeriod = true;
+      if (val === 'all') dateRange.value = null;
+      else dateRange.value = lastNDays(Number(val));
+      nextTick(() => { syncingPeriod = false; });
+      loadSummary();
+    }
+    function onCustomDate(val) {
+      if (syncingPeriod) return;
+      period.value = val && val.length === 2 ? '' : 'all';
+    }
+
+    function buildSummaryQuery() {
+      const q = new URLSearchParams();
+      if (summaryWh.value) q.set('warehouseId', summaryWh.value);
+      if (dateRange.value && dateRange.value.length === 2) {
+        q.set('from', new Date(dateRange.value[0] + 'T00:00:00').toISOString());
+        q.set('to', new Date(dateRange.value[1] + 'T23:59:59.999').toISOString());
+      }
+      return q;
+    }
+
     async function loadSummary() {
-      const q = new URLSearchParams();
-      if (wh.value) q.set('warehouseId', wh.value);
-      summary.value = await ImsAuth.api('/reports/movement-summary?' + q);
+      summaryLoading.value = true;
+      try {
+        summary.value = (await ImsAuth.api('/reports/movement-summary?' + buildSummaryQuery())) || [];
+        await nextTick();
+        renderSummaryCharts();
+      } catch (e) {
+        ElementPlus.ElMessage.error(e.message);
+      } finally {
+        summaryLoading.value = false;
+      }
     }
+    function resetSummary() {
+      period.value = '30';
+      dateRange.value = lastNDays(30);
+      summaryWh.value = null;
+      loadSummary();
+    }
+
     async function loadAge() {
-      const q = new URLSearchParams();
-      if (wh.value) q.set('warehouseId', wh.value);
-      ages.value = await ImsAuth.api('/reports/stock-age?' + q);
+      ageLoading.value = true;
+      try {
+        const q = new URLSearchParams();
+        if (ageWh.value) q.set('warehouseId', ageWh.value);
+        ages.value = (await ImsAuth.api('/reports/stock-age?' + q)) || [];
+        await nextTick();
+        renderAgeChart();
+      } catch (e) {
+        ElementPlus.ElMessage.error(e.message);
+      } finally {
+        ageLoading.value = false;
+      }
     }
+    function resetAge() {
+      ageWh.value = null;
+      loadAge();
+    }
+
+    function groupedByType() {
+      const map = {};
+      for (const row of summary.value) {
+        const key = row.type || 'OTHER';
+        if (!map[key]) map[key] = { type: key, qty: 0, amount: 0, orders: 0 };
+        map[key].qty += Number(row.totalQty) || 0;
+        map[key].amount += Number(row.totalAmount) || 0;
+        map[key].orders += Number(row.orderCount) || 0;
+      }
+      return Object.values(map);
+    }
+
+    function renderSummaryCharts() {
+      const groups = groupedByType();
+      if (!qtyChartEl.value || !pieChartEl.value) return;
+      if (!qtyChart) qtyChart = echarts.init(qtyChartEl.value);
+      if (!pieChart) pieChart = echarts.init(pieChartEl.value);
+      if (!groups.length) {
+        qtyChart.clear();
+        pieChart.clear();
+        return;
+      }
+      qtyChart.setOption({
+        tooltip: { trigger: 'axis' },
+        grid: { left: 48, right: 16, top: 24, bottom: 48 },
+        xAxis: {
+          type: 'category',
+          data: groups.map(g => typeLabel(g.type)),
+          axisLabel: { interval: 0, rotate: groups.length > 5 ? 20 : 0 }
+        },
+        yAxis: { type: 'value', name: '数量' },
+        series: [{
+          type: 'bar',
+          data: groups.map(g => ({
+            value: g.qty,
+            itemStyle: { color: TYPE_COLORS[g.type] || '#64748b', borderRadius: [4, 4, 0, 0] }
+          })),
+          barMaxWidth: 42
+        }]
+      }, true);
+      pieChart.setOption({
+        tooltip: { trigger: 'item', formatter: '{b}<br/>{c} ({d}%)' },
+        legend: { bottom: 0, type: 'scroll' },
+        series: [{
+          type: 'pie',
+          radius: ['42%', '68%'],
+          center: ['50%', '44%'],
+          avoidLabelOverlap: true,
+          itemStyle: { borderColor: '#fff', borderWidth: 2 },
+          label: { formatter: '{d}%' },
+          data: groups.map(g => ({
+            name: typeLabel(g.type),
+            value: g.qty,
+            itemStyle: { color: TYPE_COLORS[g.type] || '#64748b' }
+          }))
+        }]
+      }, true);
+      qtyChart.resize();
+      pieChart.resize();
+    }
+
+    function renderAgeChart() {
+      if (!ageChartEl.value) return;
+      if (!ageChart) ageChart = echarts.init(ageChartEl.value);
+      const buckets = ageBuckets.value;
+      if (!ages.value.length) {
+        ageChart.clear();
+        return;
+      }
+      ageChart.setOption({
+        tooltip: { trigger: 'axis' },
+        grid: { left: 48, right: 16, top: 16, bottom: 32 },
+        xAxis: { type: 'category', data: buckets.map(b => b.label) },
+        yAxis: { type: 'value', name: '在库数量' },
+        series: [{
+          type: 'bar',
+          data: [
+            { value: buckets[0].qty, itemStyle: { color: '#059669', borderRadius: [4, 4, 0, 0] } },
+            { value: buckets[1].qty, itemStyle: { color: '#2563eb', borderRadius: [4, 4, 0, 0] } },
+            { value: buckets[2].qty, itemStyle: { color: '#d97706', borderRadius: [4, 4, 0, 0] } },
+            { value: buckets[3].qty, itemStyle: { color: '#dc2626', borderRadius: [4, 4, 0, 0] } }
+          ],
+          barMaxWidth: 56
+        }]
+      }, true);
+      ageChart.resize();
+    }
+
+    function onTabChange() {
+      nextTick(() => {
+        if (tab.value === 'summary') renderSummaryCharts();
+        if (tab.value === 'age') renderAgeChart();
+      });
+    }
+    function onResize() {
+      qtyChart && qtyChart.resize();
+      pieChart && pieChart.resize();
+      ageChart && ageChart.resize();
+    }
+
+    function downloadCsv(filename, header, rows) {
+      const lines = [header.join(',')].concat(rows.map(r => r.map(csvCell).join(',')));
+      const blob = new Blob(['\uFEFF' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(a.href);
+    }
+    function csvCell(v) {
+      if (v == null) return '';
+      const s = String(v);
+      if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+      return s;
+    }
+    function exportSummary() {
+      downloadCsv('movement-summary.csv',
+        ['类型', '仓库', '方向', '单数', '数量', '金额'],
+        summary.value.map(r => [typeLabel(r.type), r.warehouseName, dirLabel(r.type), r.orderCount, r.totalQty, r.totalAmount])
+      );
+    }
+    function exportAge() {
+      downloadCsv('stock-age.csv',
+        ['SKU', '仓库', '在库', '库龄(天)', '区间', '最近入库'],
+        ages.value.map(r => [r.skuCode, r.warehouseName, r.onHandQty, r.ageDays, ageBucketLabel(r.ageDays), formatTime(r.lastInboundAt)])
+      );
+    }
+
     onMounted(async () => {
       if (!ImsAuth.requireAuth()) return;
-      warehouses.value = (await ImsAuth.api('/warehouses?page=0&size=100')).items;
-      loadSummary(); loadAge();
+      user.value = ImsAuth.getUser();
+      window.addEventListener('resize', onResize);
+      try {
+        warehouses.value = (await ImsAuth.api('/warehouses?page=0&size=100')).items || [];
+      } catch (e) {
+        ElementPlus.ElMessage.error(e.message);
+      }
+      await Promise.all([loadSummary(), loadAge()]);
     });
-    return { navHtml, warehouses, wh, summary, ages, loadSummary, loadAge };
+    onBeforeUnmount(() => window.removeEventListener('resize', onResize));
+
+    return {
+      navHtml, user, tab, warehouses, ImsAuth,
+      period, dateRange, summaryWh, summary, summaryLoading, qtyChartEl, pieChartEl, kpis,
+      ageWh, ages, ageLoading, ageChartEl, ageTableHeight, ageBuckets,
+      loadSummary, resetSummary, applyPeriod, onCustomDate, exportSummary, summaryTotals,
+      loadAge, resetAge, exportAge, onTabChange,
+      typeLabel, typeTag, dirLabel, dirClass, formatQty, formatAmount, formatTime,
+      ageTag, ageBucketLabel, ageRowClass, ageBarWidth
+    };
   }
 }).use(ElementPlus).mount('#app');
 </script>

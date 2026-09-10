@@ -26,6 +26,7 @@ public class CategoryService {
 
     public List<CategoryVO> tree() {
         List<ProductCategory> all = categoryRepository.findAllByOrderBySortOrderAscIdAsc();
+        Map<Long, Integer> productCounts = loadProductCounts();
         Map<Long, CategoryVO> map = new HashMap<>();
         List<CategoryVO> roots = new ArrayList<>();
 
@@ -35,6 +36,9 @@ public class CategoryService {
                     .name(c.getName())
                     .parentId(c.getParentId())
                     .sortOrder(c.getSortOrder())
+                    .productCount(productCounts.getOrDefault(c.getId(), 0))
+                    .createdAt(c.getCreatedAt())
+                    .updatedAt(c.getUpdatedAt())
                     .build());
         }
         for (ProductCategory c : all) {
@@ -50,7 +54,32 @@ public class CategoryService {
                 }
             }
         }
+        for (CategoryVO root : roots) {
+            fillAggregates(root);
+        }
         return roots;
+    }
+
+    private Map<Long, Integer> loadProductCounts() {
+        Map<Long, Integer> counts = new HashMap<>();
+        for (Object[] row : productRepository.countGroupedByCategoryId()) {
+            if (row[0] == null || row[1] == null) {
+                continue;
+            }
+            counts.put(((Number) row[0]).longValue(), ((Number) row[1]).intValue());
+        }
+        return counts;
+    }
+
+    private int fillAggregates(CategoryVO node) {
+        List<CategoryVO> children = node.getChildren() == null ? List.of() : node.getChildren();
+        node.setChildCount(children.size());
+        int total = node.getProductCount() == null ? 0 : node.getProductCount();
+        for (CategoryVO child : children) {
+            total += fillAggregates(child);
+        }
+        node.setTotalProductCount(total);
+        return total;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -96,11 +125,18 @@ public class CategoryService {
     }
 
     private CategoryVO toVO(ProductCategory category) {
+        int productCount = (int) productRepository.countByCategoryId(category.getId());
+        int childCount = (int) categoryRepository.countByParentId(category.getId());
         return CategoryVO.builder()
                 .id(category.getId())
                 .name(category.getName())
                 .parentId(category.getParentId())
                 .sortOrder(category.getSortOrder())
+                .productCount(productCount)
+                .totalProductCount(productCount)
+                .childCount(childCount)
+                .createdAt(category.getCreatedAt())
+                .updatedAt(category.getUpdatedAt())
                 .build();
     }
 }

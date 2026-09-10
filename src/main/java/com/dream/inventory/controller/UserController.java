@@ -24,9 +24,12 @@ public class UserController {
     @GetMapping
     @PreAuthorize("hasAuthority('system:user')")
     public Result<PageResult<UserVO>> list(
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) Integer status,
+            @RequestParam(required = false) String roleCode,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return Result.ok(userService.list(page, size));
+        return Result.ok(userService.list(keyword, status, roleCode, page, size));
     }
 
     @PostMapping

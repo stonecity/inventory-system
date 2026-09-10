@@ -17,6 +17,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -30,8 +31,11 @@ public class UserService {
     private final SysRoleRepository roleRepository;
     private final PasswordEncoder passwordEncoder;
 
-    public PageResult<UserVO> list(int page, int size) {
-        Page<SysUser> result = userRepository.findAll(PageRequest.of(page, size, Sort.by("id")));
+    public PageResult<UserVO> list(String keyword, Integer status, String roleCode, int page, int size) {
+        String kw = StringUtils.hasText(keyword) ? keyword.trim() : null;
+        String role = StringUtils.hasText(roleCode) ? roleCode.trim() : null;
+        Page<SysUser> result = userRepository.search(kw, status, role,
+                PageRequest.of(page, size, Sort.by("id")));
         return PageResult.of(result.getContent().stream().map(this::toVO).toList(),
                 result.getTotalElements(), page, size);
     }
@@ -109,6 +113,7 @@ public class UserService {
                 .phone(user.getPhone())
                 .email(user.getEmail())
                 .status(user.getStatus())
+                .lastLoginAt(user.getLastLoginAt())
                 .roleCodes(user.getRoles().stream().map(SysRole::getCode).collect(Collectors.toSet()))
                 .warehouseIds(user.getWarehouseIds())
                 .build();

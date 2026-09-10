@@ -17,6 +17,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -26,12 +30,25 @@ public class AlertService {
     private final InventoryRepository inventoryRepository;
     private final SafetyStockRuleRepository safetyStockRuleRepository;
     private final ProductSkuRepository skuRepository;
+    private final WarehouseRepository warehouseRepository;
 
     public PageResult<AlertVO> list(AlertStatus status, Long warehouseId, AlertType alertType, int page, int size) {
         PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<StockAlert> result = alertRepository.search(status, warehouseId, alertType, pageable);
-        return PageResult.of(result.getContent().stream().map(this::toVO).toList(),
-                result.getTotalElements(), page, size);
+        List<StockAlert> alerts = result.getContent();
+        Set<Long> skuIds = alerts.stream().map(StockAlert::getSkuId).collect(Collectors.toSet());
+        Set<Long> warehouseIds = alerts.stream().map(StockAlert::getWarehouseId)
+                .filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<Long, String> skuCodes = skuRepository.findAllById(skuIds).stream()
+                .collect(Collectors.toMap(ProductSku::getId, ProductSku::getSkuCode));
+        Map<Long, String> warehouseNames = warehouseRepository.findAllById(warehouseIds).stream()
+                .collect(Collectors.toMap(Warehouse::getId, Warehouse::getName));
+        List<AlertVO> vos = alerts.stream()
+                .map(a -> toVO(a,
+                        skuCodes.getOrDefault(a.getSkuId(), ""),
+                        warehouseNames.getOrDefault(a.getWarehouseId(), "")))
+                .toList();
+        return PageResult.of(vos, result.getTotalElements(), page, size);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -151,11 +168,17 @@ public class AlertService {
 
     private AlertVO toVO(StockAlert a) {
         String skuCode = skuRepository.findById(a.getSkuId()).map(ProductSku::getSkuCode).orElse("");
+        String warehouseName = warehouseRepository.findById(a.getWarehouseId()).map(Warehouse::getName).orElse("");
+        return toVO(a, skuCode, warehouseName);
+    }
+
+    private AlertVO toVO(StockAlert a, String skuCode, String warehouseName) {
         return AlertVO.builder()
                 .id(a.getId())
                 .skuId(a.getSkuId())
                 .skuCode(skuCode)
                 .warehouseId(a.getWarehouseId())
+                .warehouseName(warehouseName)
                 .alertType(a.getAlertType())
                 .currentQty(a.getCurrentQty())
                 .threshold(a.getThreshold())

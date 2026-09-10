@@ -2,6 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>用户管理 - IMS</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
@@ -9,83 +10,524 @@
   <script src="https://unpkg.com/element-plus"></script>
   <script src="/js/auth.js"></script>
   <script src="/js/nav.js"></script>
+  <script>
+    tailwind.config = { theme: { extend: { colors: { brand: { 600: '#2563eb' } } } } }
+  </script>
 </head>
 <body class="bg-slate-50">
 <div id="app" class="flex min-h-screen">
   <aside class="w-64 bg-slate-900 text-white flex flex-col shrink-0">
     <div class="px-6 py-5 border-b border-slate-700"><h1 class="text-lg font-bold">IMS 库存管理</h1></div>
     <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto" v-html="navHtml"></nav>
+    <div class="px-6 py-4 border-t border-slate-700 text-xs text-slate-400">{{ user?.realName }}</div>
   </aside>
-  <main class="flex-1 p-8">
-    <div class="flex justify-between mb-4"><h2 class="text-xl font-semibold">用户管理</h2><el-button type="primary" @click="openCreate">新增用户</el-button></div>
-    <el-table :data="list" stripe border>
-      <el-table-column prop="username" label="用户名" width="120" />
-      <el-table-column prop="realName" label="姓名" width="120" />
-      <el-table-column prop="phone" label="电话" width="140" />
-      <el-table-column label="角色"><template #default="{ row }">{{ (row.roleCodes||[]).join(', ') }}</template></el-table-column>
-      <el-table-column label="状态" width="80"><template #default="{ row }"><el-tag :type="row.status===1?'success':'info'" size="small">{{ row.status===1?'启用':'停用' }}</el-tag></template></el-table-column>
-      <el-table-column label="操作" width="280">
-        <template #default="{ row }">
-          <el-button size="small" @click="openEdit(row)">编辑</el-button>
-          <el-button size="small" @click="openRoles(row)">角色</el-button>
-          <el-button size="small" @click="openWh(row)">仓库范围</el-button>
-          <el-button size="small" @click="toggle(row)">{{ row.status===1?'停用':'启用' }}</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
-    <el-dialog v-model="dlg" :title="isEdit?'编辑用户':'新增用户'" width="480px">
-      <el-form label-width="90px">
-        <el-form-item v-if="!isEdit" label="用户名"><el-input v-model="form.username" /></el-form-item>
-        <el-form-item label="姓名"><el-input v-model="form.realName" /></el-form-item>
-        <el-form-item label="密码"><el-input v-model="form.password" type="password" :placeholder="isEdit?'不改则留空':''" /></el-form-item>
-        <el-form-item label="电话"><el-input v-model="form.phone" /></el-form-item>
-        <el-form-item label="邮箱"><el-input v-model="form.email" /></el-form-item>
+
+  <main class="flex-1 flex flex-col min-w-0">
+    <header class="bg-white border-b border-slate-200 px-8 py-4 flex items-center justify-between">
+      <div>
+        <h2 class="text-xl font-semibold text-slate-800">用户管理</h2>
+        <p class="text-sm text-slate-500 mt-0.5">维护账号、角色与仓库数据范围</p>
+      </div>
+      <div class="flex gap-2">
+        <el-button v-if="canWrite" type="primary" @click="openCreate">新增用户</el-button>
+        <el-button @click="ImsAuth.logout()">退出</el-button>
+      </div>
+    </header>
+
+    <div class="flex-1 p-8 space-y-4">
+      <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+        <div class="flex flex-wrap gap-3 items-end">
+          <div class="flex-1 min-w-[200px]">
+            <label class="block text-xs text-slate-500 mb-1">关键字</label>
+            <el-input v-model="query.keyword" placeholder="用户名 / 姓名 / 电话 / 邮箱" clearable @keyup.enter="search" />
+          </div>
+          <div class="w-44">
+            <label class="block text-xs text-slate-500 mb-1">角色</label>
+            <el-select v-model="query.roleCode" placeholder="全部" clearable class="w-full">
+              <el-option v-for="r in roles" :key="r.code" :label="r.name" :value="r.code" />
+            </el-select>
+          </div>
+          <div class="w-32">
+            <label class="block text-xs text-slate-500 mb-1">状态</label>
+            <el-select v-model="query.status" placeholder="全部" clearable class="w-full">
+              <el-option label="启用" :value="1" />
+              <el-option label="停用" :value="0" />
+            </el-select>
+          </div>
+          <el-button type="primary" @click="search">查询</el-button>
+          <el-button @click="resetQuery">重置</el-button>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <el-table
+          :data="list"
+          v-loading="loading"
+          stripe
+          style="width: 100%"
+          :row-class-name="rowClass"
+          empty-text="暂无用户"
+        >
+          <el-table-column label="用户" min-width="168">
+            <template #default="{ row }">
+              <div class="font-medium text-slate-800">{{ row.realName || '-' }}</div>
+              <div class="text-xs text-slate-400 mt-0.5 font-mono tracking-wide">{{ row.username || '-' }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="联系方式" min-width="180">
+            <template #default="{ row }">
+              <div class="text-slate-700">{{ row.phone || '-' }}</div>
+              <div class="text-xs text-slate-400 mt-0.5 truncate" :title="row.email">{{ row.email || '-' }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="角色" min-width="200">
+            <template #default="{ row }">
+              <div v-if="(row.roleCodes || []).length" class="flex flex-wrap gap-1">
+                <el-tag
+                  v-for="code in row.roleCodes"
+                  :key="code"
+                  :type="roleTagType(code)"
+                  size="small"
+                  effect="plain"
+                >{{ roleName(code) }}</el-tag>
+              </div>
+              <span v-else class="text-slate-400">未分配</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="仓库范围" min-width="200">
+            <template #default="{ row }">
+              <div v-if="warehouseLabels(row).length" class="flex flex-wrap gap-1">
+                <el-tag
+                  v-for="item in warehouseLabels(row)"
+                  :key="item.id"
+                  size="small"
+                  effect="plain"
+                >{{ item.name }}</el-tag>
+              </div>
+              <span v-else class="text-slate-400">{{ warehouseEmptyText(row) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" width="88" align="center">
+            <template #default="{ row }">
+              <el-tag :type="row.status === 1 ? 'success' : 'info'" size="small">
+                {{ row.status === 1 ? '启用' : '停用' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="最近登录" width="168">
+            <template #default="{ row }">
+              <span :class="row.lastLoginAt ? 'text-slate-600' : 'text-slate-400'">{{ formatTime(row.lastLoginAt) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column v-if="canWrite" label="操作" width="248" fixed="right" align="center">
+            <template #default="{ row }">
+              <div class="op-cell">
+                <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
+                <el-button link type="primary" @click="openRoles(row)">角色</el-button>
+                <el-button link type="primary" @click="openWh(row)">仓库</el-button>
+                <el-button
+                  link
+                  :type="row.status === 1 ? 'warning' : 'success'"
+                  @click="toggle(row)"
+                >{{ row.status === 1 ? '停用' : '启用' }}</el-button>
+              </div>
+            </template>
+          </el-table-column>
+        </el-table>
+        <div class="px-4 py-3 border-t border-slate-100 flex justify-end">
+          <el-pagination
+            v-model:current-page="page"
+            v-model:page-size="size"
+            :total="total"
+            :page-sizes="[10, 20, 50]"
+            background
+            layout="total, sizes, prev, pager, next"
+            @current-change="loadList"
+            @size-change="search"
+          />
+        </div>
+      </div>
+    </div>
+
+    <el-dialog v-model="dlg" :title="isEdit ? '编辑用户' : '新增用户'" width="520px" destroy-on-close>
+      <el-form ref="formRef" :model="form" :rules="formRules" label-width="90px">
+        <el-form-item v-if="!isEdit" label="用户名" prop="username">
+          <el-input v-model="form.username" maxlength="50" placeholder="登录账号，创建后不可改" />
+        </el-form-item>
+        <el-form-item v-else label="用户名">
+          <el-input :model-value="form.username" disabled />
+        </el-form-item>
+        <el-form-item label="姓名" prop="realName">
+          <el-input v-model="form.realName" maxlength="50" placeholder="真实姓名" />
+        </el-form-item>
+        <el-form-item label="密码" :prop="isEdit ? 'editPassword' : 'password'">
+          <el-input v-model="form.password" type="password" show-password :placeholder="isEdit ? '不改则留空' : '初始登录密码'" />
+        </el-form-item>
+        <el-form-item label="电话">
+          <el-input v-model="form.phone" maxlength="20" placeholder="可选" />
+        </el-form-item>
+        <el-form-item label="邮箱">
+          <el-input v-model="form.email" maxlength="100" placeholder="可选" />
+        </el-form-item>
         <el-form-item v-if="!isEdit" label="角色">
-          <el-select v-model="form.roleCodes" multiple class="w-full"><el-option v-for="r in roles" :key="r.code" :label="r.name" :value="r.code" /></el-select>
+          <el-select v-model="form.roleCodes" multiple filterable collapse-tags collapse-tags-tooltip class="w-full" placeholder="可选，稍后也可分配">
+            <el-option v-for="r in roles" :key="r.code" :label="r.name" :value="r.code">
+              <div class="flex items-center justify-between gap-4">
+                <span>{{ r.name }}</span>
+                <span class="text-xs text-slate-400">{{ r.code }}</span>
+              </div>
+            </el-option>
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="!isEdit" label="仓库范围">
+          <el-select v-model="form.warehouseIds" multiple filterable collapse-tags collapse-tags-tooltip class="w-full" placeholder="仓库管理员需指定">
+            <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id">
+              <div class="flex items-center justify-between gap-4">
+                <span>{{ w.name }}</span>
+                <span class="text-xs text-slate-400 font-mono">{{ w.code }}</span>
+              </div>
+            </el-option>
+          </el-select>
+          <p class="text-xs text-slate-400 mt-1 leading-5">仓库管理员按此范围过滤数据；超级管理员可不限仓。</p>
         </el-form-item>
       </el-form>
-      <template #footer><el-button type="primary" @click="save">保存</el-button></template>
+      <template #footer>
+        <el-button @click="dlg = false">取消</el-button>
+        <el-button type="primary" :loading="submitting" @click="save">确定</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="roleDlg" title="分配角色" width="480px" destroy-on-close>
+      <p class="text-sm text-slate-500 mb-3">
+        为 <span class="font-medium text-slate-800">{{ currentUser?.realName }}</span>
+        <span class="text-slate-400 font-mono">（{{ currentUser?.username }}）</span> 选择角色
+      </p>
+      <el-checkbox-group v-model="roleForm">
+        <div v-for="r in roles" :key="r.code" class="border border-slate-100 rounded-lg px-3 py-2 mb-2 hover:bg-slate-50">
+          <el-checkbox :value="r.code">
+            <span class="font-medium">{{ r.name }}</span>
+            <span class="text-xs text-slate-400 ml-2">{{ r.code }}</span>
+          </el-checkbox>
+          <p v-if="r.description" class="text-xs text-slate-400 pl-6 mt-0.5 leading-5">{{ r.description }}</p>
+        </div>
+      </el-checkbox-group>
+      <template #footer>
+        <el-button @click="roleDlg = false">取消</el-button>
+        <el-button type="primary" :loading="submitting" @click="saveRoles">确定</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="whDlg" title="仓库范围" width="520px" destroy-on-close>
+      <p class="text-sm text-slate-500 mb-3">
+        为 <span class="font-medium text-slate-800">{{ currentUser?.realName }}</span>
+        <span class="text-slate-400 font-mono">（{{ currentUser?.username }}）</span> 指定可访问仓库
+      </p>
+      <el-checkbox-group v-model="whForm" class="grid grid-cols-1 gap-2">
+        <div v-for="w in warehouses" :key="w.id" class="border border-slate-100 rounded-lg px-3 py-2 hover:bg-slate-50">
+          <el-checkbox :value="w.id">
+            <span class="font-medium">{{ w.name }}</span>
+            <span class="text-xs text-slate-400 font-mono ml-2">{{ w.code }}</span>
+          </el-checkbox>
+          <p class="text-xs text-slate-400 pl-6 mt-0.5">{{ w.type === 'VIRTUAL' ? '虚拟仓' : (w.address || '实体仓') }}</p>
+        </div>
+      </el-checkbox-group>
+      <p class="text-xs text-slate-400 mt-3 leading-5">未勾选表示不绑定仓库。仓库管理员建议至少选择一个所辖仓库。</p>
+      <template #footer>
+        <el-button @click="whDlg = false">取消</el-button>
+        <el-button type="primary" :loading="submitting" @click="saveWh">确定</el-button>
+      </template>
     </el-dialog>
   </main>
 </div>
-<style>.nav-link{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;font-size:14px;color:#cbd5e1}.nav-link.active{background:#2563eb;color:#fff}</style>
+<style>
+  .nav-link { display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:8px; font-size:14px; color:#cbd5e1; }
+  .nav-link:hover { background:#1e293b; color:#fff; }
+  .nav-link.active { background:#2563eb; color:#fff; font-weight:500; }
+  .el-table table { width:100% !important; border-collapse:separate !important; }
+  .el-table th.el-table__cell,
+  .el-table td.el-table__cell { display:table-cell !important; }
+  .el-table th.el-table__cell > .cell { white-space:nowrap; }
+  .el-table .row-disabled td { color:#94a3b8; background:#f8fafc !important; }
+  .el-pagination { flex-wrap:wrap; }
+  .op-cell { display:flex; flex-wrap:nowrap; justify-content:center; gap:0 4px; }
+  .op-cell .el-button { margin-left:0; }
+</style>
 <script>
-const { createApp, ref, computed, onMounted } = Vue;
+const { createApp, ref, reactive, computed, onMounted } = Vue;
+
 createApp({
   setup() {
+    const user = ref(ImsAuth.getUser());
     const navHtml = computed(() => ImsNav.render('users.html'));
-    const list = ref([]), roles = ref([]), warehouses = ref([]), dlg = ref(false), isEdit = ref(false), editId = ref(null);
-    const form = ref({});
-    async function load() { list.value = (await ImsAuth.api('/users?page=0&size=50')).items; }
-    function openCreate() { isEdit.value=false; form.value={ username:'', realName:'', password:'', phone:'', email:'', roleCodes:[] }; dlg.value=true; }
-    function openEdit(row) { isEdit.value=true; editId.value=row.id; form.value={ realName:row.realName, phone:row.phone, email:row.email, password:'' }; dlg.value=true; }
+    const canWrite = computed(() => ImsAuth.hasPermission('system:user'));
+    const loading = ref(false);
+    const submitting = ref(false);
+    const list = ref([]);
+    const roles = ref([]);
+    const warehouses = ref([]);
+    const total = ref(0);
+    const page = ref(1);
+    const size = ref(20);
+    const query = reactive({ keyword: '', status: null, roleCode: null });
+
+    const dlg = ref(false);
+    const isEdit = ref(false);
+    const editId = ref(null);
+    const formRef = ref(null);
+    const form = reactive({
+      username: '',
+      realName: '',
+      password: '',
+      phone: '',
+      email: '',
+      roleCodes: [],
+      warehouseIds: []
+    });
+    const formRules = {
+      username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
+      realName: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
+      password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
+    };
+
+    const roleDlg = ref(false);
+    const whDlg = ref(false);
+    const currentUser = ref(null);
+    const roleForm = ref([]);
+    const whForm = ref([]);
+
+    function rowClass({ row }) {
+      return row.status === 1 ? '' : 'row-disabled';
+    }
+
+    function roleName(code) {
+      const found = roles.value.find(r => r.code === code);
+      return found ? found.name : code;
+    }
+
+    function roleTagType(code) {
+      if (code === 'ROLE_ADMIN') return 'danger';
+      if (code === 'ROLE_WAREHOUSE') return '';
+      if (code === 'ROLE_BIZ') return 'success';
+      return 'info';
+    }
+
+    function warehouseLabels(row) {
+      return (row.warehouseIds || []).map(id => {
+        const found = warehouses.value.find(w => w.id === id);
+        return { id, name: found ? found.name : '#' + id };
+      });
+    }
+
+    function warehouseEmptyText(row) {
+      const codes = row.roleCodes || [];
+      if (codes.includes('ROLE_WAREHOUSE')) return '未配置';
+      return '不限';
+    }
+
+    function formatTime(iso) {
+      if (iso === undefined) return '-';
+      if (!iso) return '从未登录';
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return iso;
+      const pad = n => String(n).padStart(2, '0');
+      return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate())
+        + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+    }
+
+    function trimOrNull(value) {
+      const text = (value || '').trim();
+      return text || null;
+    }
+
+    async function loadList() {
+      loading.value = true;
+      try {
+        const params = new URLSearchParams({ page: page.value - 1, size: size.value });
+        if (query.keyword) params.set('keyword', query.keyword.trim());
+        if (query.status != null) params.set('status', query.status);
+        if (query.roleCode) params.set('roleCode', query.roleCode);
+        const data = await ImsAuth.api('/users?' + params);
+        list.value = data.items || [];
+        total.value = data.total || 0;
+      } catch (e) {
+        ElementPlus.ElMessage.error(e.message);
+      } finally {
+        loading.value = false;
+      }
+    }
+
+    function search() {
+      page.value = 1;
+      loadList();
+    }
+
+    function resetQuery() {
+      query.keyword = '';
+      query.status = null;
+      query.roleCode = null;
+      page.value = 1;
+      loadList();
+    }
+
+    function resetForm() {
+      form.username = '';
+      form.realName = '';
+      form.password = '';
+      form.phone = '';
+      form.email = '';
+      form.roleCodes = [];
+      form.warehouseIds = [];
+    }
+
+    function openCreate() {
+      isEdit.value = false;
+      editId.value = null;
+      resetForm();
+      dlg.value = true;
+    }
+
+    function openEdit(row) {
+      isEdit.value = true;
+      editId.value = row.id;
+      form.username = row.username || '';
+      form.realName = row.realName || '';
+      form.password = '';
+      form.phone = row.phone || '';
+      form.email = row.email || '';
+      form.roleCodes = [...(row.roleCodes || [])];
+      form.warehouseIds = [...(row.warehouseIds || [])];
+      dlg.value = true;
+    }
+
     async function save() {
-      if (isEdit.value) await ImsAuth.api('/users/'+editId.value, { method:'PUT', body: JSON.stringify(form.value) });
-      else await ImsAuth.api('/users', { method:'POST', body: JSON.stringify(form.value) });
-      dlg.value=false; load();
+      await formRef.value.validate();
+      submitting.value = true;
+      try {
+        if (isEdit.value) {
+          const body = {
+            realName: form.realName.trim(),
+            phone: trimOrNull(form.phone),
+            email: trimOrNull(form.email),
+            password: trimOrNull(form.password)
+          };
+          await ImsAuth.api('/users/' + editId.value, { method: 'PUT', body: JSON.stringify(body) });
+          ElementPlus.ElMessage.success('更新成功');
+        } else {
+          const body = {
+            username: form.username.trim(),
+            realName: form.realName.trim(),
+            password: form.password,
+            phone: trimOrNull(form.phone),
+            email: trimOrNull(form.email),
+            roleCodes: form.roleCodes,
+            warehouseIds: form.warehouseIds
+          };
+          await ImsAuth.api('/users', { method: 'POST', body: JSON.stringify(body) });
+          ElementPlus.ElMessage.success('创建成功');
+        }
+        dlg.value = false;
+        loadList();
+      } catch (e) {
+        ElementPlus.ElMessage.error(e.message);
+      } finally {
+        submitting.value = false;
+      }
     }
-    async function openRoles(row) {
-      const { value } = await ElementPlus.ElMessageBox.prompt('角色编码，逗号分隔', '分配角色', { inputValue: (row.roleCodes||[]).join(',') });
-      await ImsAuth.api('/users/'+row.id+'/roles', { method:'PUT', body: JSON.stringify({ roleCodes: value.split(',').map(s=>s.trim()).filter(Boolean) }) });
-      load();
+
+    function openRoles(row) {
+      currentUser.value = row;
+      roleForm.value = [...(row.roleCodes || [])];
+      roleDlg.value = true;
     }
-    async function openWh(row) {
-      const { value } = await ElementPlus.ElMessageBox.prompt('仓库 ID，逗号分隔', '仓库范围', { inputValue: (row.warehouseIds||[]).join(',') });
-      const ids = value.split(',').map(s=>s.trim()).filter(Boolean).map(Number);
-      await ImsAuth.api('/users/'+row.id+'/warehouses', { method:'PUT', body: JSON.stringify({ warehouseIds: ids }) });
-      load();
+
+    async function saveRoles() {
+      submitting.value = true;
+      try {
+        await ImsAuth.api('/users/' + currentUser.value.id + '/roles', {
+          method: 'PUT',
+          body: JSON.stringify({ roleCodes: roleForm.value })
+        });
+        ElementPlus.ElMessage.success('角色已更新');
+        roleDlg.value = false;
+        loadList();
+      } catch (e) {
+        ElementPlus.ElMessage.error(e.message);
+      } finally {
+        submitting.value = false;
+      }
     }
+
+    function openWh(row) {
+      currentUser.value = row;
+      whForm.value = [...(row.warehouseIds || [])];
+      whDlg.value = true;
+    }
+
+    async function saveWh() {
+      submitting.value = true;
+      try {
+        await ImsAuth.api('/users/' + currentUser.value.id + '/warehouses', {
+          method: 'PUT',
+          body: JSON.stringify({ warehouseIds: whForm.value })
+        });
+        ElementPlus.ElMessage.success('仓库范围已更新');
+        whDlg.value = false;
+        loadList();
+      } catch (e) {
+        ElementPlus.ElMessage.error(e.message);
+      } finally {
+        submitting.value = false;
+      }
+    }
+
     async function toggle(row) {
-      await ImsAuth.api('/users/'+row.id+'/status', { method:'PUT', body: JSON.stringify({ status: row.status===1?0:1 }) });
-      load();
+      const newStatus = row.status === 1 ? 0 : 1;
+      const action = newStatus === 0 ? '停用' : '启用';
+      if (newStatus === 0 && user.value && row.id === user.value.id) {
+        ElementPlus.ElMessage.warning('不能停用当前登录账号');
+        return;
+      }
+      try {
+        await ElementPlus.ElMessageBox.confirm(
+          `确定${action}用户「${row.realName || row.username}」？`,
+          '确认'
+        );
+        await ImsAuth.api('/users/' + row.id + '/status', {
+          method: 'PUT',
+          body: JSON.stringify({ status: newStatus })
+        });
+        ElementPlus.ElMessage.success(action + '成功');
+        loadList();
+      } catch (e) {
+        if (e !== 'cancel') ElementPlus.ElMessage.error(e.message || e);
+      }
     }
+
     onMounted(async () => {
       if (!ImsAuth.requireAuth()) return;
-      roles.value = await ImsAuth.api('/roles');
-      warehouses.value = (await ImsAuth.api('/warehouses?page=0&size=100')).items;
-      load();
+      user.value = ImsAuth.getUser();
+      try {
+        roles.value = await ImsAuth.api('/roles') || [];
+      } catch (e) {
+        roles.value = [];
+      }
+      try {
+        warehouses.value = (await ImsAuth.api('/warehouses?page=0&size=100')).items || [];
+      } catch (e) {
+        warehouses.value = [];
+      }
+      loadList();
     });
-    return { navHtml, list, roles, dlg, isEdit, form, openCreate, openEdit, save, openRoles, openWh, toggle };
+
+    return {
+      user, navHtml, canWrite, ImsAuth,
+      loading, submitting, list, roles, warehouses, total, page, size, query,
+      dlg, isEdit, formRef, form, formRules,
+      roleDlg, whDlg, currentUser, roleForm, whForm,
+      rowClass, roleName, roleTagType, warehouseLabels, warehouseEmptyText, formatTime,
+      loadList, search, resetQuery, openCreate, openEdit, save,
+      openRoles, saveRoles, openWh, saveWh, toggle
+    };
   }
 }).use(ElementPlus).mount('#app');
 </script>

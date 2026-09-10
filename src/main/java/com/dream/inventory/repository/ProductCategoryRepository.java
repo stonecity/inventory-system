@@ -11,5 +11,7 @@ public interface ProductCategoryRepository extends JpaRepository<ProductCategory
 
     boolean existsByParentId(Long parentId);
 
+    long countByParentId(Long parentId);
+
     List<ProductCategory> findByParentId(Long parentId);
 }

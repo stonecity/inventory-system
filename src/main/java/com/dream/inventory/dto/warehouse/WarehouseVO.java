@@ -17,6 +17,7 @@ public class WarehouseVO {
     private String address;
     private Long managerUserId;
     private Integer status;
+    private Integer locationCount;
     private Instant createdAt;
     private Instant updatedAt;
 }

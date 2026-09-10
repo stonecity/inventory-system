@@ -17,7 +17,6 @@
 </head>
 <body class="bg-slate-50">
 <div id="app" class="flex min-h-screen">
-  <!-- Sidebar -->
   <aside class="w-64 bg-slate-900 text-white flex flex-col shrink-0">
     <div class="px-6 py-5 border-b border-slate-700">
       <h1 class="text-lg font-bold">IMS 库存管理</h1>
@@ -26,7 +25,6 @@
     <div class="px-6 py-4 border-t border-slate-700 text-xs text-slate-400">{{ user?.realName }}</div>
   </aside>
 
-  <!-- Main -->
   <main class="flex-1 flex flex-col min-w-0">
     <header class="bg-white border-b border-slate-200 px-8 py-4 flex items-center justify-between">
       <div>
@@ -39,13 +37,12 @@
       </div>
     </header>
 
-    <div class="flex-1 p-8 space-y-4">
-      <!-- Filters -->
+    <div class="flex-1 p-8 min-w-0 space-y-4">
       <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
         <div class="flex flex-wrap gap-3 items-end">
           <div class="flex-1 min-w-[180px]">
             <label class="block text-xs text-slate-500 mb-1">关键字（编码/条码）</label>
-            <el-input v-model="query.keyword" placeholder="扫码或搜索" clearable @keyup.enter="loadList" />
+            <el-input v-model="query.keyword" placeholder="扫码或搜索" clearable @keyup.enter="search" />
           </div>
           <div class="w-48">
             <label class="block text-xs text-slate-500 mb-1">所属 SPU</label>
@@ -60,41 +57,77 @@
               <el-option label="停用" :value="0" />
             </el-select>
           </div>
-          <el-button type="primary" @click="loadList">查询</el-button>
+          <el-button type="primary" @click="search">查询</el-button>
           <el-button @click="resetQuery">重置</el-button>
         </div>
       </div>
 
-      <!-- Table -->
       <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <el-table :data="list" v-loading="loading" stripe>
-          <el-table-column prop="skuCode" label="SKU 编码" min-width="130" />
-          <el-table-column prop="spuName" label="所属 SPU" min-width="120" />
-          <el-table-column label="规格" min-width="160">
+        <el-table
+          :data="list"
+          v-loading="loading"
+          stripe
+          style="width: 100%"
+          :height="tableHeight"
+          :row-class-name="rowClass"
+          empty-text="暂无 SKU 数据"
+        >
+          <el-table-column label="SKU" min-width="168" show-overflow-tooltip>
             <template #default="{ row }">
-              <span v-if="row.specJson && Object.keys(row.specJson).length">
-                <el-tag v-for="(v, k) in row.specJson" :key="k" size="small" class="mr-1">{{ k }}: {{ v }}</el-tag>
-              </span>
+              <div class="font-medium text-slate-800 tracking-tight">{{ row.skuCode || '-' }}</div>
+              <div class="text-xs text-slate-400 mt-0.5 font-mono">{{ row.barcode || '无条码' }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column prop="spuName" label="所属 SPU" min-width="140" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.spuName || '-' }}</template>
+          </el-table-column>
+          <el-table-column label="规格" min-width="180">
+            <template #default="{ row }">
+              <div v-if="specEntries(row.specJson).length" class="spec-cell">
+                <el-tag
+                  v-for="item in specEntries(row.specJson)"
+                  :key="item.key"
+                  size="small"
+                  effect="plain"
+                  type="info"
+                >{{ item.key }} {{ item.value }}</el-tag>
+              </div>
               <span v-else class="text-slate-400">-</span>
             </template>
           </el-table-column>
-          <el-table-column prop="barcode" label="条码" min-width="120">
-            <template #default="{ row }">{{ row.barcode || '-' }}</template>
-          </el-table-column>
-          <el-table-column prop="costPrice" label="成本价" width="100" align="right" />
-          <el-table-column prop="salePrice" label="售价" width="100" align="right" />
-          <el-table-column prop="defaultSafetyStock" label="安全库存" width="90" align="center" />
-          <el-table-column label="状态" width="80" align="center">
+          <el-table-column label="成本价" width="110" align="right">
             <template #default="{ row }">
-              <el-tag :type="row.status === 1 ? 'success' : 'info'" size="small">{{ row.status === 1 ? '启用' : '停用' }}</el-tag>
+              <span class="tabular-nums text-slate-600">{{ formatPrice(row.costPrice) }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="180" fixed="right">
+          <el-table-column label="售价" width="110" align="right">
             <template #default="{ row }">
-              <el-button v-if="canWrite" link type="primary" @click="openEdit(row)">编辑</el-button>
-              <el-button v-if="canToggleStatus(row)" link :type="row.status === 1 ? 'warning' : 'success'" @click="toggleStatus(row)">
-                {{ row.status === 1 ? '停用' : '启用' }}
-              </el-button>
+              <span class="tabular-nums font-medium text-slate-800">{{ formatPrice(row.salePrice) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="安全库存" width="96" align="right">
+            <template #default="{ row }">
+              <span class="tabular-nums">{{ row.defaultSafetyStock == null ? '-' : row.defaultSafetyStock }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" width="88" align="center">
+            <template #default="{ row }">
+              <el-tag :type="row.status === 1 ? 'success' : 'info'" size="small">
+                {{ row.status === 1 ? '启用' : '停用' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="148" fixed="right" align="center">
+            <template #default="{ row }">
+              <div class="op-cell">
+                <el-button v-if="canWrite" link type="primary" @click="openEdit(row)">编辑</el-button>
+                <el-button
+                  v-if="canToggleStatus(row)"
+                  link
+                  :type="row.status === 1 ? 'warning' : 'success'"
+                  @click="toggleStatus(row)"
+                >{{ row.status === 1 ? '停用' : '启用' }}</el-button>
+              </div>
             </template>
           </el-table-column>
         </el-table>
@@ -104,20 +137,24 @@
             v-model:page-size="size"
             :total="total"
             :page-sizes="[10, 20, 50]"
+            background
             layout="total, sizes, prev, pager, next"
-            @change="loadList"
+            @current-change="loadList"
+            @size-change="search"
           />
         </div>
       </div>
     </div>
 
-    <!-- Dialog -->
     <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑 SKU' : '新增 SKU'" width="560px" destroy-on-close>
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
         <el-form-item label="所属 SPU" prop="spuId">
-          <el-select v-model="form.spuId" placeholder="选择 SPU" filterable class="w-full" :disabled="isEdit">
-            <el-option v-for="p in products" :key="p.id" :label="p.name" :value="p.id" />
-          </el-select>
+          <div class="flex gap-2 w-full">
+            <el-select v-model="form.spuId" placeholder="选择 SPU" filterable class="flex-1" :disabled="isEdit">
+              <el-option v-for="p in products" :key="p.id" :label="p.name" :value="p.id" />
+            </el-select>
+            <el-button v-if="!isEdit && canWrite" @click="spuDialogVisible = true">新建 SPU</el-button>
+          </div>
         </el-form-item>
         <el-form-item label="SKU 编码" prop="skuCode">
           <el-input v-model="form.skuCode" placeholder="业务编码 / 扫码主键" />
@@ -128,21 +165,21 @@
         <el-form-item label="规格属性">
           <div class="w-full space-y-2">
             <div v-for="(spec, idx) in specRows" :key="idx" class="flex gap-2">
-              <el-input v-model="spec.key" placeholder="属性名" class="flex-1" />
-              <el-input v-model="spec.value" placeholder="属性值" class="flex-1" />
+              <el-input v-model="spec.key" placeholder="属性名，如颜色" class="flex-1" />
+              <el-input v-model="spec.value" placeholder="属性值，如红" class="flex-1" />
               <el-button :icon="Delete" circle @click="specRows.splice(idx, 1)" />
             </div>
             <el-button size="small" @click="specRows.push({ key: '', value: '' })">+ 添加规格</el-button>
           </div>
         </el-form-item>
         <el-form-item label="成本价" prop="costPrice">
-          <el-input-number v-model="form.costPrice" :min="0" :precision="2" class="w-full" />
+          <el-input-number v-model="form.costPrice" :min="0" :precision="2" :controls="false" style="width:100%" />
         </el-form-item>
         <el-form-item label="售价" prop="salePrice">
-          <el-input-number v-model="form.salePrice" :min="0" :precision="2" class="w-full" />
+          <el-input-number v-model="form.salePrice" :min="0" :precision="2" :controls="false" style="width:100%" />
         </el-form-item>
         <el-form-item label="安全库存">
-          <el-input-number v-model="form.defaultSafetyStock" :min="0" class="w-full" />
+          <el-input-number v-model="form.defaultSafetyStock" :min="0" :controls="false" style="width:100%" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -151,7 +188,6 @@
       </template>
     </el-dialog>
 
-    <!-- Quick create SPU -->
     <el-dialog v-model="spuDialogVisible" title="快速新建 SPU" width="420px">
       <el-form :model="spuForm" label-width="80px">
         <el-form-item label="商品名" required>
@@ -172,9 +208,19 @@
   </main>
 </div>
 <style>
-  .nav-link { display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:8px; font-size:14px; color:#cbd5e1; }
-  .nav-link:hover { background:#1e293b; color:#fff; }
-  .nav-link.active { background:#2563eb; color:#fff; font-weight:500; }
+.nav-link { display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:8px; font-size:14px; color:#cbd5e1; }
+.nav-link:hover { background:#1e293b; color:#fff; }
+.nav-link.active { background:#2563eb; color:#fff; font-weight:500; }
+.el-table table { width:100% !important; border-collapse:separate !important; }
+.el-table th.el-table__cell,
+.el-table td.el-table__cell { display:table-cell !important; }
+.el-table th.el-table__cell > .cell { white-space:nowrap; }
+.el-table .row-disabled td { color:#94a3b8; background:#f8fafc !important; }
+.el-pagination { flex-wrap:wrap; }
+.op-cell { display:flex; flex-wrap:nowrap; justify-content:center; gap:0 4px; }
+.op-cell .el-button { margin-left:0; }
+.spec-cell { display:flex; flex-wrap:wrap; gap:4px; align-items:center; }
+.spec-cell .el-tag { margin:0; }
 </style>
 <script>
 const { createApp, ref, reactive, computed, onMounted } = Vue;
@@ -186,6 +232,7 @@ createApp({
     const navHtml = computed(() => ImsNav.render('skus.html'));
     const canWrite = computed(() => ImsAuth.hasPermission('sku:write'));
     const canDisable = computed(() => ImsAuth.hasPermission('sku:disable'));
+    const tableHeight = computed(() => Math.max(360, window.innerHeight - 340));
     function canToggleStatus(row) {
       return row.status === 1 ? canDisable.value : canWrite.value;
     }
@@ -214,6 +261,34 @@ createApp({
       skuCode: [{ required: true, message: '请输入 SKU 编码', trigger: 'blur' }]
     };
 
+    function parseSpec(spec) {
+      if (!spec) return null;
+      if (typeof spec === 'string') {
+        try { spec = JSON.parse(spec); } catch { return null; }
+      }
+      if (typeof spec !== 'object' || Array.isArray(spec)) return null;
+      return spec;
+    }
+
+    function specEntries(spec) {
+      const obj = parseSpec(spec);
+      if (!obj) return [];
+      return Object.entries(obj)
+        .filter(([k, v]) => k && v != null && String(v).length)
+        .map(([key, value]) => ({ key, value }));
+    }
+
+    function formatPrice(value) {
+      if (value == null || value === '') return '-';
+      const n = Number(value);
+      if (Number.isNaN(n)) return '-';
+      return '¥' + n.toFixed(2);
+    }
+
+    function rowClass({ row }) {
+      return row.status === 1 ? '' : 'row-disabled';
+    }
+
     async function loadProducts() {
       const data = await ImsAuth.api('/products?page=0&size=200&status=1');
       products.value = data.items;
@@ -236,12 +311,16 @@ createApp({
       }
     }
 
+    function search() {
+      page.value = 1;
+      loadList();
+    }
+
     function resetQuery() {
       query.keyword = '';
       query.spuId = null;
       query.status = null;
-      page.value = 1;
-      loadList();
+      search();
     }
 
     function buildSpecJson() {
@@ -274,9 +353,8 @@ createApp({
         costPrice: Number(row.costPrice), salePrice: Number(row.salePrice),
         defaultSafetyStock: row.defaultSafetyStock, version: row.version
       });
-      specRows.value = row.specJson
-        ? Object.entries(row.specJson).map(([k, v]) => ({ key: k, value: v }))
-        : [];
+      const entries = specEntries(row.specJson);
+      specRows.value = entries.length ? entries : [];
       dialogVisible.value = true;
     }
 
@@ -331,7 +409,7 @@ createApp({
         spuDialogVisible.value = false;
         spuForm.name = ''; spuForm.brand = '';
         ElementPlus.ElMessage.success('SPU 创建成功');
-        openCreate();
+        if (!dialogVisible.value) openCreate();
         form.spuId = p.id;
       } catch (e) {
         ElementPlus.ElMessage.error(e.message);
@@ -348,11 +426,12 @@ createApp({
     });
 
     return {
-      Delete, user, navHtml, canWrite, canDisable, canToggleStatus, ImsAuth,
+      Delete, user, navHtml, canWrite, canDisable, canToggleStatus, ImsAuth, tableHeight,
       loading, submitting, list, total, page, size, products, query,
       dialogVisible, isEdit, formRef, form, rules, specRows,
       spuDialogVisible, spuSubmitting, spuForm,
-      loadList, resetQuery, openCreate, openEdit, submitForm, toggleStatus, createSpu
+      specEntries, formatPrice, rowClass,
+      loadList, search, resetQuery, openCreate, openEdit, submitForm, toggleStatus, createSpu
     };
   }
 }).use(ElementPlus).mount('#app');

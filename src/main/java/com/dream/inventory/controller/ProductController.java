@@ -24,9 +24,11 @@ public class ProductController {
     public Result<PageResult<ProductVO>> list(
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Integer status,
+            @RequestParam(required = false) Long categoryId,
+            @RequestParam(required = false, defaultValue = "false") boolean includeDescendants,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return Result.ok(productService.list(keyword, status, page, size));
+        return Result.ok(productService.list(keyword, status, categoryId, includeDescendants, page, size));
     }
 
     @GetMapping("/{id}")

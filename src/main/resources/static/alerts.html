@@ -2,6 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>库存预警 - IMS</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
@@ -16,77 +17,296 @@
     <div class="px-6 py-5 border-b border-slate-700"><h1 class="text-lg font-bold">IMS 库存管理</h1></div>
     <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto" v-html="navHtml"></nav>
   </aside>
-  <main class="flex-1 p-8">
-    <div class="flex justify-between mb-4">
-      <h2 class="text-xl font-semibold">库存预警</h2>
+  <main class="flex-1 flex flex-col min-w-0">
+    <header class="bg-white border-b border-slate-200 px-8 py-4 flex items-center justify-between">
+      <div>
+        <h2 class="text-xl font-semibold text-slate-800">库存预警</h2>
+        <p class="text-sm text-slate-500 mt-0.5">查看低库存、零库存与超储预警，确认后可生成采购入库单</p>
+      </div>
       <div class="flex gap-2">
-        <el-button @click="scan">手动扫描</el-button>
-        <el-button type="primary" :disabled="!selected.length" @click="genDlg=true">生成采购单</el-button>
+        <el-button :loading="scanning" @click="scan">手动扫描</el-button>
+        <el-button type="primary" :disabled="!selected.length" @click="openGenerate">
+          生成采购单<span v-if="selected.length"> ({{ selected.length }})</span>
+        </el-button>
+      </div>
+    </header>
+
+    <div class="flex-1 p-8 min-w-0">
+      <div class="bg-white rounded-xl border border-slate-200 p-4 mb-4 shadow-sm">
+        <div class="flex flex-wrap gap-3 items-end">
+          <div class="w-40">
+            <label class="block text-xs text-slate-500 mb-1">状态</label>
+            <el-select v-model="query.status" placeholder="全部状态" clearable class="w-full">
+              <el-option label="开放" value="OPEN" />
+              <el-option label="已确认" value="ACKED" />
+              <el-option label="已关闭" value="CLOSED" />
+            </el-select>
+          </div>
+          <div class="w-40">
+            <label class="block text-xs text-slate-500 mb-1">类型</label>
+            <el-select v-model="query.type" placeholder="全部类型" clearable class="w-full">
+              <el-option label="低库存" value="LOW" />
+              <el-option label="零库存" value="ZERO" />
+              <el-option label="超储" value="OVER" />
+            </el-select>
+          </div>
+          <div class="w-48">
+            <label class="block text-xs text-slate-500 mb-1">仓库</label>
+            <el-select v-model="query.warehouseId" placeholder="全部仓库" clearable filterable class="w-full">
+              <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
+            </el-select>
+          </div>
+          <el-button type="primary" @click="search">查询</el-button>
+          <el-button @click="resetQuery">重置</el-button>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <el-table
+          :data="list"
+          v-loading="loading"
+          stripe
+          style="width: 100%"
+          :height="tableHeight"
+          :row-class-name="rowClass"
+          empty-text="暂无预警记录"
+          @selection-change="rows => selected = rows"
+        >
+          <el-table-column type="selection" width="48" align="center" :selectable="canSelect" />
+          <el-table-column prop="skuCode" label="SKU" min-width="140" show-overflow-tooltip>
+            <template #default="{ row }">
+              <div class="font-medium text-slate-800">{{ row.skuCode || '-' }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="仓库" min-width="140" show-overflow-tooltip>
+            <template #default="{ row }">{{ warehouseName(row) }}</template>
+          </el-table-column>
+          <el-table-column label="类型" width="110" align="center">
+            <template #default="{ row }">
+              <el-tag :type="typeTag(row.alertType)" size="small">{{ typeLabel(row.alertType) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="当前量" width="100" align="right">
+            <template #default="{ row }">
+              <span :class="qtyClass(row)">{{ row.currentQty == null ? '-' : row.currentQty }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="阈值" width="90" align="right">
+            <template #default="{ row }">{{ row.threshold == null ? '-' : row.threshold }}</template>
+          </el-table-column>
+          <el-table-column label="状态" width="110" align="center">
+            <template #default="{ row }">
+              <el-tag :type="statusTag(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="产生时间" min-width="170">
+            <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
+          </el-table-column>
+          <el-table-column label="操作" width="150" fixed="right" align="center">
+            <template #default="{ row }">
+              <div class="op-cell">
+                <el-button link type="primary" v-if="row.status === 'OPEN'" @click="ack(row)">确认</el-button>
+                <el-button link type="warning" v-if="row.status !== 'CLOSED'" @click="close(row)">关闭</el-button>
+                <span v-else class="text-slate-400 text-xs">已关闭</span>
+              </div>
+            </template>
+          </el-table-column>
+        </el-table>
+        <div class="px-4 py-3 border-t border-slate-100 flex justify-end">
+          <el-pagination
+            v-model:current-page="page"
+            v-model:page-size="size"
+            :total="total"
+            :page-sizes="[10, 20, 50, 100]"
+            background
+            layout="total, sizes, prev, pager, next, jumper"
+            @current-change="load"
+            @size-change="search"
+          />
+        </div>
       </div>
     </div>
-    <div class="bg-white rounded-xl border p-4 mb-4 flex gap-3">
-      <el-select v-model="query.status" placeholder="状态" clearable style="width:120px">
-        <el-option label="开放" value="OPEN" /><el-option label="已确认" value="ACKED" /><el-option label="已关闭" value="CLOSED" />
-      </el-select>
-      <el-select v-model="query.type" placeholder="类型" clearable style="width:120px">
-        <el-option label="低库存" value="LOW" /><el-option label="零库存" value="ZERO" /><el-option label="超储" value="OVER" />
-      </el-select>
-      <el-button type="primary" @click="load">查询</el-button>
-    </div>
-    <el-table :data="list" v-loading="loading" stripe border @selection-change="rows => selected = rows">
-      <el-table-column type="selection" width="40" />
-      <el-table-column prop="skuCode" label="SKU" width="140" />
-      <el-table-column prop="warehouseId" label="仓库" width="80" />
-      <el-table-column prop="alertType" label="类型" width="90" />
-      <el-table-column prop="currentQty" label="当前量" width="80" />
-      <el-table-column prop="threshold" label="阈值" width="80" />
-      <el-table-column prop="status" label="状态" width="90" />
-      <el-table-column label="操作" width="160">
-        <template #default="{ row }">
-          <el-button size="small" v-if="row.status==='OPEN'" @click="ack(row)">确认</el-button>
-          <el-button size="small" @click="close(row)">关闭</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+
     <el-dialog v-model="genDlg" title="生成采购入库单" width="420px">
+      <p class="text-sm text-slate-500 mb-4">将根据已选 {{ selected.length }} 条预警预填采购入库草稿。</p>
       <el-form label-width="80px">
         <el-form-item label="供应商">
-          <el-select v-model="supplierId" filterable class="w-full"><el-option v-for="s in suppliers" :key="s.id" :label="s.name" :value="s.id" /></el-select>
+          <el-select v-model="supplierId" filterable placeholder="请选择供应商" class="w-full">
+            <el-option v-for="s in suppliers" :key="s.id" :label="s.name" :value="s.id" />
+          </el-select>
         </el-form-item>
       </el-form>
-      <template #footer><el-button type="primary" @click="generate">生成</el-button></template>
+      <template #footer>
+        <el-button @click="genDlg=false">取消</el-button>
+        <el-button type="primary" :loading="generating" @click="generate">生成</el-button>
+      </template>
     </el-dialog>
   </main>
 </div>
-<style>.nav-link{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;font-size:14px;color:#cbd5e1}.nav-link.active{background:#2563eb;color:#fff}</style>
+<style>
+.nav-link{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;font-size:14px;color:#cbd5e1}
+.nav-link.active{background:#2563eb;color:#fff}
+.el-table table{width:100% !important;border-collapse:separate !important}
+.el-table th.el-table__cell,.el-table td.el-table__cell{display:table-cell !important}
+.el-table .row-zero td{background:#fef2f2 !important}
+.el-table .row-low td{background:#fffbeb !important}
+.el-table .row-over td{background:#eff6ff !important}
+.el-pagination{flex-wrap:wrap}
+.op-cell{display:flex;flex-wrap:wrap;justify-content:center;gap:0 4px}
+.op-cell .el-button{margin-left:0}
+</style>
 <script>
 const { createApp, ref, computed, onMounted } = Vue;
+const TYPE_MAP = { LOW: { l: '低库存', tag: 'warning' }, ZERO: { l: '零库存', tag: 'danger' }, OVER: { l: '超储', tag: 'info' } };
+const STATUS_MAP = { OPEN: { l: '开放', tag: 'danger' }, ACKED: { l: '已确认', tag: 'warning' }, CLOSED: { l: '已关闭', tag: 'info' } };
+
 createApp({
   setup() {
     const navHtml = computed(() => ImsNav.render('alerts.html'));
-    const list = ref([]), loading = ref(false), selected = ref([]), query = ref({}), suppliers = ref([]), genDlg = ref(false), supplierId = ref(null);
+    const tableHeight = computed(() => Math.max(360, window.innerHeight - 340));
+    const list = ref([]), warehouses = ref([]), suppliers = ref([]);
+    const loading = ref(false), scanning = ref(false), generating = ref(false);
+    const selected = ref([]), genDlg = ref(false), supplierId = ref(null);
+    const total = ref(0), page = ref(1), size = ref(20);
+    const query = ref({ status: 'OPEN', type: null, warehouseId: null });
+
+    function typeLabel(t) { return (TYPE_MAP[t] && TYPE_MAP[t].l) || t || '-'; }
+    function typeTag(t) { return (TYPE_MAP[t] && TYPE_MAP[t].tag) || 'info'; }
+    function statusLabel(s) { return (STATUS_MAP[s] && STATUS_MAP[s].l) || s || '-'; }
+    function statusTag(s) { return (STATUS_MAP[s] && STATUS_MAP[s].tag) || 'info'; }
+    function qtyClass(row) {
+      if (row.alertType === 'ZERO' || (row.currentQty != null && row.currentQty <= 0)) return 'text-red-600 font-medium';
+      if (row.alertType === 'LOW') return 'text-amber-600 font-medium';
+      if (row.alertType === 'OVER') return 'text-blue-600 font-medium';
+      return '';
+    }
+    function rowClass({ row }) {
+      if (row.status === 'CLOSED') return '';
+      if (row.alertType === 'ZERO') return 'row-zero';
+      if (row.alertType === 'LOW') return 'row-low';
+      if (row.alertType === 'OVER') return 'row-over';
+      return '';
+    }
+    function canSelect(row) {
+      return row.status !== 'CLOSED' && row.alertType !== 'OVER';
+    }
+    function warehouseName(row) {
+      if (row.warehouseName) return row.warehouseName;
+      const w = warehouses.value.find(x => x.id === row.warehouseId);
+      return w ? w.name : '-';
+    }
+    function formatTime(v) {
+      if (v == null || v === '') return '-';
+      const d = typeof v === 'number' ? new Date(v > 1e12 ? v : v * 1000) : new Date(v);
+      if (Number.isNaN(d.getTime())) return String(v);
+      const pad = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    }
+
     async function load() {
       loading.value = true;
       try {
-        const q = new URLSearchParams({ page:0, size:50 });
+        const q = new URLSearchParams({ page: page.value - 1, size: size.value });
         if (query.value.status) q.set('status', query.value.status);
         if (query.value.type) q.set('type', query.value.type);
-        list.value = (await ImsAuth.api('/alerts?' + q)).items;
-      } finally { loading.value = false; }
+        if (query.value.warehouseId) q.set('warehouseId', query.value.warehouseId);
+        const data = await ImsAuth.api('/alerts?' + q);
+        list.value = data.items || [];
+        total.value = data.total || 0;
+        selected.value = [];
+      } catch (e) {
+        ElementPlus.ElMessage.error(e.message);
+      } finally {
+        loading.value = false;
+      }
     }
-    async function scan() { await ImsAuth.api('/alerts/scan', { method:'POST' }); load(); }
-    async function ack(row) { await ImsAuth.api(`/alerts/${row.id}/ack`, { method:'POST' }); load(); }
-    async function close(row) { await ImsAuth.api(`/alerts/${row.id}/close`, { method:'POST' }); load(); }
+    function search() {
+      page.value = 1;
+      load();
+    }
+    function resetQuery() {
+      query.value = { status: 'OPEN', type: null, warehouseId: null };
+      page.value = 1;
+      load();
+    }
+    async function scan() {
+      scanning.value = true;
+      try {
+        await ImsAuth.api('/alerts/scan', { method: 'POST' });
+        ElementPlus.ElMessage.success('扫描完成');
+        await load();
+      } catch (e) {
+        ElementPlus.ElMessage.error(e.message);
+      } finally {
+        scanning.value = false;
+      }
+    }
+    async function ack(row) {
+      try {
+        await ImsAuth.api(`/alerts/${row.id}/ack`, { method: 'POST' });
+        ElementPlus.ElMessage.success('已确认');
+        await load();
+      } catch (e) {
+        ElementPlus.ElMessage.error(e.message);
+      }
+    }
+    async function close(row) {
+      try {
+        await ElementPlus.ElMessageBox.confirm('确认关闭该预警？', '关闭预警', { type: 'warning' });
+        await ImsAuth.api(`/alerts/${row.id}/close`, { method: 'POST' });
+        ElementPlus.ElMessage.success('已关闭');
+        await load();
+      } catch (e) {
+        if (e !== 'cancel') ElementPlus.ElMessage.error(e.message);
+      }
+    }
+    function openGenerate() {
+      if (!selected.value.length) return;
+      supplierId.value = null;
+      genDlg.value = true;
+    }
     async function generate() {
-      await ImsAuth.api('/alerts/generate-purchase', { method:'POST', body: JSON.stringify({ alertIds: selected.value.map(a=>a.id), supplierId: supplierId.value }) });
-      genDlg.value=false; ElementPlus.ElMessage.success('已生成采购草稿'); location.href='movements.html';
+      if (!supplierId.value) {
+        ElementPlus.ElMessage.warning('请选择供应商');
+        return;
+      }
+      generating.value = true;
+      try {
+        await ImsAuth.api('/alerts/generate-purchase', {
+          method: 'POST',
+          body: JSON.stringify({ alertIds: selected.value.map(a => a.id), supplierId: supplierId.value })
+        });
+        genDlg.value = false;
+        ElementPlus.ElMessage.success('已生成采购草稿');
+        location.href = 'movements.html';
+      } catch (e) {
+        ElementPlus.ElMessage.error(e.message);
+      } finally {
+        generating.value = false;
+      }
     }
+
     onMounted(async () => {
       if (!ImsAuth.requireAuth()) return;
-      suppliers.value = (await ImsAuth.api('/suppliers?page=0&size=100')).items;
+      try {
+        const [wh, sp] = await Promise.all([
+          ImsAuth.api('/warehouses?page=0&size=100'),
+          ImsAuth.api('/suppliers?page=0&size=100')
+        ]);
+        warehouses.value = wh.items || [];
+        suppliers.value = sp.items || [];
+      } catch (e) {
+        ElementPlus.ElMessage.error(e.message);
+      }
       load();
     });
-    return { navHtml, list, loading, selected, query, suppliers, genDlg, supplierId, load, scan, ack, close, generate };
+
+    return {
+      navHtml, tableHeight, list, warehouses, suppliers, loading, scanning, generating,
+      selected, genDlg, supplierId, total, page, size, query,
+      typeLabel, typeTag, statusLabel, statusTag, qtyClass, rowClass, canSelect, warehouseName, formatTime,
+      load, search, resetQuery, scan, ack, close, openGenerate, generate
+    };
   }
 }).use(ElementPlus).mount('#app');
 </script>

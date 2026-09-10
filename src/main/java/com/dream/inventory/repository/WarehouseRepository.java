@@ -20,7 +20,7 @@ public interface WarehouseRepository extends JpaRepository<Warehouse, Long> {
     boolean existsByCodeAndIdNot(String code, Long id);
 
     @Query("SELECT w FROM Warehouse w WHERE "
-            + "(:keyword IS NULL OR w.code LIKE %:keyword% OR w.name LIKE %:keyword%) "
+            + "(:keyword IS NULL OR w.code LIKE %:keyword% OR w.name LIKE %:keyword% OR w.address LIKE %:keyword%) "
             + "AND (:type IS NULL OR w.type = :type) "
             + "AND (:status IS NULL OR w.status = :status)")
     Page<Warehouse> search(@Param("keyword") String keyword,

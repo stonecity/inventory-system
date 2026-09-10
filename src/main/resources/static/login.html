@@ -9,6 +9,16 @@
   <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
   <script src="https://unpkg.com/element-plus"></script>
   <script src="/js/auth.js"></script>
+  <style>
+    .el-input__wrapper {
+      justify-content: flex-start !important;
+    }
+    .el-input__inner {
+      text-align: left !important;
+      width: 100%;
+      flex-grow: 1;
+    }
+  </style>
 </head>
 <body class="bg-gradient-to-br from-slate-900 via-slate-800 to-brand-900 min-h-screen flex items-center justify-center p-4">
 <div id="app" class="w-full max-w-md">
@@ -20,7 +30,7 @@
     <h2 class="text-xl font-semibold text-slate-800 mb-6">账号登录</h2>
     <el-form :model="form" @submit.prevent="login">
       <el-form-item>
-        <el-input v-model="form.username" placeholder="用户名" size="large" prefix-icon="User" />
+        <el-input v-model="form.username" placeholder="用户名" size="large" />
       </el-form-item>
       <el-form-item>
         <el-input v-model="form.password" type="password" placeholder="密码" size="large" show-password
@@ -38,7 +48,7 @@ const { createApp, reactive, ref, onMounted } = Vue;
 createApp({
   setup() {
     const loading = ref(false);
-    const form = reactive({ username: 'admin', password: 'admin123', remember: true });
+    const form = reactive({ username: 'admin', password: '', remember: true });
 
     onMounted(() => {
       if (ImsAuth.getToken()) {

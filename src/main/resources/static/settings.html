@@ -2,6 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>系统设置 - IMS</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
@@ -9,56 +10,462 @@
   <script src="https://unpkg.com/element-plus"></script>
   <script src="/js/auth.js"></script>
   <script src="/js/nav.js"></script>
+  <script>
+    tailwind.config = { theme: { extend: { colors: { brand: { 600: '#2563eb' } } } } }
+  </script>
 </head>
 <body class="bg-slate-50">
 <div id="app" class="flex min-h-screen">
   <aside class="w-64 bg-slate-900 text-white flex flex-col shrink-0">
     <div class="px-6 py-5 border-b border-slate-700"><h1 class="text-lg font-bold">IMS 库存管理</h1></div>
     <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto" v-html="navHtml"></nav>
+    <div class="px-6 py-4 border-t border-slate-700 text-xs text-slate-400">{{ user?.realName }}</div>
   </aside>
-  <main class="flex-1 p-8">
-    <h2 class="text-xl font-semibold mb-4">系统设置</h2>
-    <el-tabs>
-      <el-tab-pane label="参数">
-        <el-form label-width="180px" class="max-w-lg bg-white p-6 rounded-xl border">
-          <el-form-item v-for="(v,k) in settings" :key="k" :label="k">
-            <el-input v-model="settings[k]" />
-          </el-form-item>
-          <el-button type="primary" @click="save">保存</el-button>
-        </el-form>
-      </el-tab-pane>
-      <el-tab-pane label="审计日志">
-        <el-table :data="audits" border>
-          <el-table-column prop="createdAt" label="时间" width="180" />
-          <el-table-column prop="userId" label="用户" width="80" />
-          <el-table-column prop="action" label="动作" width="160" />
-          <el-table-column prop="resourceType" label="资源" width="140" />
-          <el-table-column prop="resourceId" label="资源ID" width="100" />
-        </el-table>
-      </el-tab-pane>
-    </el-tabs>
+
+  <main class="flex-1 flex flex-col min-w-0">
+    <header class="bg-white border-b border-slate-200 px-8 py-4 flex items-center justify-between">
+      <div>
+        <h2 class="text-xl font-semibold text-slate-800">系统设置</h2>
+        <p class="text-sm text-slate-500 mt-0.5">维护运行参数与操作审计；参数影响预留超时、盘点超时与单号生成</p>
+      </div>
+      <div class="flex gap-2">
+        <el-button v-if="tab === 'params' && canWrite" type="primary" :loading="saving" :disabled="!dirty" @click="save">
+          保存参数
+        </el-button>
+        <el-button @click="ImsAuth.logout()">退出</el-button>
+      </div>
+    </header>
+
+    <div class="flex-1 p-8 min-w-0">
+      <el-tabs v-model="tab" class="settings-tabs" @tab-change="onTabChange">
+        <el-tab-pane v-if="canWrite" label="运行参数" name="params">
+          <div v-loading="settingsLoading" class="space-y-6">
+            <div class="rounded-xl border border-blue-100 bg-blue-50/70 px-4 py-3 text-sm text-slate-600">
+              修改后点击右上角「保存参数」立即生效。预留超时与盘点超时由定时任务按这些值扫描。
+            </div>
+
+            <section v-for="group in settingGroups" :key="group.name">
+              <h3 class="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+                <span class="inline-block w-1 h-4 rounded bg-blue-600"></span>
+                {{ group.name }}
+              </h3>
+              <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                <article
+                  v-for="item in group.items"
+                  :key="item.key"
+                  class="setting-card"
+                >
+                  <div class="flex items-start gap-3 mb-3">
+                    <div class="setting-icon" :class="item.tone">{{ item.icon }}</div>
+                    <div class="min-w-0 flex-1">
+                      <div class="flex flex-wrap items-center gap-2">
+                        <h4 class="font-semibold text-slate-800">{{ item.title }}</h4>
+                        <code class="text-[11px] text-slate-400 bg-slate-50 border border-slate-100 rounded px-1.5 py-0.5">{{ item.key }}</code>
+                      </div>
+                      <p class="text-sm text-slate-500 mt-1 leading-relaxed">{{ item.desc }}</p>
+                    </div>
+                  </div>
+                  <div class="flex flex-wrap items-center gap-3">
+                    <el-input-number
+                      v-model="form[item.key]"
+                      :min="item.min"
+                      :max="item.max"
+                      :step="item.step"
+                      controls-position="right"
+                      style="width: 160px"
+                    />
+                    <span class="text-sm text-slate-500">{{ item.unit }}</span>
+                    <span v-if="item.key === 'doc.seq.width'" class="text-xs text-slate-400 font-mono">
+                      示例 {{ seqExample }}
+                    </span>
+                  </div>
+                </article>
+              </div>
+            </section>
+
+            <section v-if="unknownKeys.length">
+              <h3 class="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+                <span class="inline-block w-1 h-4 rounded bg-slate-400"></span>
+                其他参数
+              </h3>
+              <div class="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+                <el-form label-width="220px">
+                  <el-form-item v-for="k in unknownKeys" :key="k" :label="k">
+                    <el-input v-model="form[k]" class="max-w-xs" />
+                  </el-form-item>
+                </el-form>
+              </div>
+            </section>
+          </div>
+        </el-tab-pane>
+
+        <el-tab-pane v-if="canAudit" label="审计日志" name="audit">
+          <div class="space-y-4">
+            <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+              <div class="flex flex-wrap gap-3 items-end">
+                <div class="w-44">
+                  <label class="block text-xs text-slate-500 mb-1">动作</label>
+                  <el-select v-model="auditQuery.action" placeholder="全部动作" clearable filterable class="w-full">
+                    <el-option v-for="a in actionOptions" :key="a.value" :label="a.label" :value="a.value" />
+                  </el-select>
+                </div>
+                <div class="w-48">
+                  <label class="block text-xs text-slate-500 mb-1">操作人</label>
+                  <el-select v-model="auditQuery.userId" placeholder="全部用户" clearable filterable class="w-full">
+                    <el-option v-for="u in users" :key="u.id" :label="userLabel(u)" :value="u.id" />
+                  </el-select>
+                </div>
+                <div class="w-64">
+                  <label class="block text-xs text-slate-500 mb-1">时间范围</label>
+                  <el-date-picker
+                    v-model="auditQuery.range"
+                    type="daterange"
+                    unlink-panels
+                    clearable
+                    range-separator="至"
+                    start-placeholder="开始"
+                    end-placeholder="结束"
+                    value-format="YYYY-MM-DD"
+                    style="width: 100%"
+                  />
+                </div>
+                <el-button type="primary" @click="searchAudits">查询</el-button>
+                <el-button @click="resetAudits">重置</el-button>
+              </div>
+            </div>
+
+            <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <el-table
+                :data="audits"
+                v-loading="auditLoading"
+                stripe
+                style="width: 100%"
+                :height="tableHeight"
+                empty-text="暂无审计记录"
+              >
+                <el-table-column type="expand">
+                  <template #default="{ row }">
+                    <div class="px-6 py-3 text-sm text-slate-600 grid grid-cols-1 md:grid-cols-2 gap-2">
+                      <div><span class="text-slate-400">IP：</span>{{ row.ip || '-' }}</div>
+                      <div><span class="text-slate-400">Trace：</span><code class="text-xs">{{ row.traceId || '-' }}</code></div>
+                      <div class="md:col-span-2"><span class="text-slate-400">UA：</span>{{ row.userAgent || '-' }}</div>
+                      <div class="md:col-span-2">
+                        <span class="text-slate-400">详情：</span>
+                        <pre class="mt-1 bg-slate-50 border border-slate-100 rounded-lg p-3 text-xs overflow-x-auto">{{ formatDetail(row.detail) }}</pre>
+                      </div>
+                    </div>
+                  </template>
+                </el-table-column>
+                <el-table-column label="时间" width="180">
+                  <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
+                </el-table-column>
+                <el-table-column label="操作人" min-width="140">
+                  <template #default="{ row }">
+                    <div class="font-medium text-slate-800">{{ operatorName(row.userId) }}</div>
+                    <div class="text-xs text-slate-400">ID {{ row.userId == null ? '-' : row.userId }}</div>
+                  </template>
+                </el-table-column>
+                <el-table-column label="动作" width="140" align="center">
+                  <template #default="{ row }">
+                    <el-tag :type="actionTag(row.action)" size="small">{{ actionLabel(row.action) }}</el-tag>
+                  </template>
+                </el-table-column>
+                <el-table-column label="资源" min-width="140">
+                  <template #default="{ row }">
+                    <div>{{ resourceLabel(row.resourceType) }}</div>
+                    <div class="text-xs text-slate-400 font-mono">{{ row.resourceId || '-' }}</div>
+                  </template>
+                </el-table-column>
+                <el-table-column label="摘要" min-width="200" show-overflow-tooltip>
+                  <template #default="{ row }">{{ detailSummary(row.detail) }}</template>
+                </el-table-column>
+              </el-table>
+              <div class="px-4 py-3 border-t border-slate-100 flex justify-end">
+                <el-pagination
+                  v-model:current-page="auditPage"
+                  v-model:page-size="auditSize"
+                  :total="auditTotal"
+                  :page-sizes="[10, 20, 50, 100]"
+                  background
+                  layout="total, sizes, prev, pager, next"
+                  @current-change="loadAudits"
+                  @size-change="searchAudits"
+                />
+              </div>
+            </div>
+          </div>
+        </el-tab-pane>
+      </el-tabs>
+    </div>
   </main>
 </div>
-<style>.nav-link{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;font-size:14px;color:#cbd5e1}.nav-link.active{background:#2563eb;color:#fff}</style>
+<style>
+  .nav-link { display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:8px; font-size:14px; color:#cbd5e1; }
+  .nav-link:hover { background:#1e293b; color:#fff; }
+  .nav-link.active { background:#2563eb; color:#fff; font-weight:500; }
+  .settings-tabs > .el-tabs__header { margin-bottom: 16px; }
+  .settings-tabs .el-tabs__item { font-size: 15px; }
+  .setting-card {
+    background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:20px;
+    box-shadow:0 1px 2px rgba(15,23,42,.04); min-height:168px;
+  }
+  .setting-card:hover { border-color:#bfdbfe; }
+  .setting-icon {
+    width:40px; height:40px; border-radius:10px; display:flex; align-items:center; justify-content:center;
+    font-size:18px; flex-shrink:0;
+  }
+  .setting-icon.blue { background:#eff6ff; }
+  .setting-icon.amber { background:#fffbeb; }
+  .setting-icon.violet { background:#f5f3ff; }
+  .setting-icon.rose { background:#fff1f2; }
+  .el-table table { width:100% !important; border-collapse:separate !important; }
+  .el-table th.el-table__cell, .el-table td.el-table__cell { display:table-cell !important; }
+  .el-pagination { flex-wrap:wrap; }
+</style>
 <script>
-const { createApp, ref, computed, reactive, onMounted } = Vue;
+const { createApp, ref, reactive, computed, onMounted } = Vue;
+
+const SETTING_META = {
+  'doc.seq.width': {
+    group: '单据规则',
+    title: '单号序列位数',
+    desc: '单据日序列补零位数。例如设为 6 时，当天第 1 张采购入库单编号为 PI20260910000001。',
+    unit: '位', min: 4, max: 10, step: 1, icon: '🔢', tone: 'blue'
+  },
+  'reserve.expire.hours': {
+    group: '销售预留',
+    title: '预留超时',
+    desc: '销售出库预留超过此时长仍未发货，系统自动取消单据并释放库存。',
+    unit: '小时', min: 1, max: 720, step: 1, icon: '⏱️', tone: 'amber'
+  },
+  'stocktake.warn.hours': {
+    group: '盘点超时',
+    title: '盘点告警时长',
+    desc: '盘点锁定超过此时长仍未完成时发出告警，提醒仓库尽快收口。',
+    unit: '小时', min: 1, max: 720, step: 1, icon: '🔔', tone: 'violet'
+  },
+  'stocktake.auto-cancel.days': {
+    group: '盘点超时',
+    title: '盘点自动取消',
+    desc: '盘点超过此时长仍未完成则自动取消，并解锁被盘点占用的库存。',
+    unit: '天', min: 1, max: 90, step: 1, icon: '📅', tone: 'rose'
+  }
+};
+
+const GROUP_ORDER = ['单据规则', '销售预留', '盘点超时'];
+
+const ACTION_MAP = {
+  LOGIN: { l: '登录', tag: 'info' },
+  APPROVE_MOVEMENT: { l: '审核单据', tag: 'success' },
+  REJECT_MOVEMENT: { l: '驳回单据', tag: 'danger' },
+  CANCEL_MOVEMENT: { l: '取消单据', tag: 'warning' },
+  APPROVE_STOCKTAKE: { l: '审批盘点', tag: 'success' },
+  LOCK_INVENTORY: { l: '锁定库存', tag: 'warning' },
+  UNLOCK_INVENTORY: { l: '解锁库存', tag: 'success' }
+};
+
+const RESOURCE_MAP = {
+  USER: '用户',
+  STOCK_MOVEMENT: '出入库单据',
+  stock_movement: '出入库单据',
+  STOCKTAKE: '盘点',
+  stocktake: '盘点',
+  INVENTORY: '库存',
+  inventory: '库存'
+};
+
 createApp({
   setup() {
+    const user = ref(ImsAuth.getUser());
     const navHtml = computed(() => ImsNav.render('settings.html'));
-    const settings = reactive({});
-    const audits = ref([]);
-    async function load() {
-      const s = await ImsAuth.api('/settings');
-      Object.keys(settings).forEach(k => delete settings[k]);
-      Object.assign(settings, s);
-      audits.value = (await ImsAuth.api('/audit-logs?page=0&size=50')).items;
+    const canWrite = computed(() => ImsAuth.hasPermission('system:user'));
+    const canAudit = computed(() => ImsAuth.hasPermission('system:audit'));
+    const tab = ref(canWrite.value ? 'params' : 'audit');
+
+    const settingsLoading = ref(false);
+    const saving = ref(false);
+    const form = reactive({});
+    const snapshot = ref('{}');
+    const knownOrder = Object.keys(SETTING_META);
+
+    const settingGroups = computed(() => {
+      const buckets = {};
+      knownOrder.forEach(key => {
+        if (!(key in form)) return;
+        const meta = SETTING_META[key];
+        if (!buckets[meta.group]) buckets[meta.group] = [];
+        buckets[meta.group].push({ key, ...meta });
+      });
+      return GROUP_ORDER.filter(name => buckets[name]).map(name => ({ name, items: buckets[name] }));
+    });
+
+    const unknownKeys = computed(() => Object.keys(form).filter(k => !SETTING_META[k]));
+    const dirty = computed(() => JSON.stringify(normalizeForm()) !== snapshot.value);
+
+    const seqExample = computed(() => {
+      const w = Number(form['doc.seq.width']) || 6;
+      const d = new Date();
+      const pad = n => String(n).padStart(2, '0');
+      const ymd = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
+      return `PI${ymd}${String(1).padStart(Math.max(1, Math.min(10, w)), '0')}`;
+    });
+
+    function normalizeForm() {
+      const out = {};
+      Object.keys(form).sort().forEach(k => { out[k] = String(form[k] ?? ''); });
+      return out;
     }
+
+    function toNumber(v, fallback) {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : fallback;
+    }
+
+    async function loadSettings() {
+      if (!canWrite.value) return;
+      settingsLoading.value = true;
+      try {
+        const data = await ImsAuth.api('/settings') || {};
+        Object.keys(form).forEach(k => delete form[k]);
+        Object.keys(data).forEach(k => {
+          form[k] = SETTING_META[k] ? toNumber(data[k], data[k]) : data[k];
+        });
+        snapshot.value = JSON.stringify(normalizeForm());
+      } catch (e) {
+        ElementPlus.ElMessage.error(e.message || '加载参数失败');
+      } finally {
+        settingsLoading.value = false;
+      }
+    }
+
     async function save() {
-      await ImsAuth.api('/settings', { method:'PUT', body: JSON.stringify({ ...settings }) });
-      ElementPlus.ElMessage.success('已保存');
+      if (!dirty.value) return;
+      for (const key of knownOrder) {
+        if (!(key in form)) continue;
+        const meta = SETTING_META[key];
+        const n = Number(form[key]);
+        if (!Number.isInteger(n) || n < meta.min || n > meta.max) {
+          return ElementPlus.ElMessage.warning(`${meta.title}需为 ${meta.min}–${meta.max} 的整数`);
+        }
+      }
+      saving.value = true;
+      try {
+        await ImsAuth.api('/settings', { method: 'PUT', body: JSON.stringify(normalizeForm()) });
+        snapshot.value = JSON.stringify(normalizeForm());
+        ElementPlus.ElMessage.success('参数已保存');
+      } catch (e) {
+        ElementPlus.ElMessage.error(e.message || '保存失败');
+      } finally {
+        saving.value = false;
+      }
     }
-    onMounted(() => { if (ImsAuth.requireAuth()) load(); });
-    return { navHtml, settings, audits, save };
+
+    const audits = ref([]);
+    const users = ref([]);
+    const auditLoading = ref(false);
+    const auditLoaded = ref(false);
+    const auditPage = ref(1);
+    const auditSize = ref(20);
+    const auditTotal = ref(0);
+    const auditQuery = reactive({ action: null, userId: null, range: null });
+    const tableHeight = computed(() => Math.max(360, window.innerHeight - 360));
+
+    const actionOptions = computed(() => {
+      const seen = new Set(Object.keys(ACTION_MAP));
+      audits.value.forEach(a => { if (a.action) seen.add(a.action); });
+      return [...seen].map(v => ({ value: v, label: actionLabel(v) }));
+    });
+
+    function userLabel(u) {
+      return u.realName ? `${u.realName}（${u.username}）` : (u.username || ('用户 #' + u.id));
+    }
+    function operatorName(id) {
+      if (id == null) return '系统';
+      const u = users.value.find(x => x.id === id);
+      return u ? (u.realName || u.username) : ('用户 #' + id);
+    }
+    function actionLabel(a) { return (ACTION_MAP[a] && ACTION_MAP[a].l) || a || '-'; }
+    function actionTag(a) { return (ACTION_MAP[a] && ACTION_MAP[a].tag) || 'info'; }
+    function resourceLabel(t) { return RESOURCE_MAP[t] || t || '-'; }
+    function formatTime(v) {
+      if (v == null || v === '') return '-';
+      const d = typeof v === 'number' ? new Date(v > 1e12 ? v : v * 1000) : new Date(v);
+      if (Number.isNaN(d.getTime())) return String(v);
+      const pad = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    }
+    function formatDetail(d) {
+      if (d == null || d === '') return '-';
+      if (typeof d === 'string') return d;
+      try { return JSON.stringify(d, null, 2); } catch (e) { return String(d); }
+    }
+    function detailSummary(d) {
+      if (!d) return '-';
+      if (typeof d === 'string') return d;
+      return d.movementNo || d.stocktakeNo || d.no || d.username || d.reason || JSON.stringify(d);
+    }
+
+    async function loadUsers() {
+      if (!canWrite.value) return;
+      try {
+        const data = await ImsAuth.api('/users?page=0&size=100');
+        users.value = (data && data.items) || [];
+      } catch (e) { /* 无用户权限时仍可按 ID 展示 */ }
+    }
+
+    async function loadAudits() {
+      if (!canAudit.value) return;
+      auditLoading.value = true;
+      try {
+        const q = new URLSearchParams({ page: auditPage.value - 1, size: auditSize.value });
+        if (auditQuery.action) q.set('action', auditQuery.action);
+        if (auditQuery.userId) q.set('userId', auditQuery.userId);
+        if (auditQuery.range && auditQuery.range.length === 2) {
+          q.set('from', new Date(auditQuery.range[0] + 'T00:00:00').toISOString());
+          q.set('to', new Date(auditQuery.range[1] + 'T23:59:59.999').toISOString());
+        }
+        const data = await ImsAuth.api('/audit-logs?' + q);
+        audits.value = (data && data.items) || [];
+        auditTotal.value = (data && data.total) || 0;
+        auditLoaded.value = true;
+      } catch (e) {
+        ElementPlus.ElMessage.error(e.message || '加载审计日志失败');
+      } finally {
+        auditLoading.value = false;
+      }
+    }
+
+    function searchAudits() {
+      auditPage.value = 1;
+      loadAudits();
+    }
+    function resetAudits() {
+      auditQuery.action = null;
+      auditQuery.userId = null;
+      auditQuery.range = null;
+      searchAudits();
+    }
+    function onTabChange(name) {
+      if (name === 'audit' && !auditLoaded.value) loadAudits();
+    }
+
+    onMounted(async () => {
+      if (!ImsAuth.requireAuth()) return;
+      if (!canWrite.value && !canAudit.value) {
+        ElementPlus.ElMessage.error('无系统设置权限');
+        return;
+      }
+      await Promise.all([loadSettings(), loadUsers()]);
+      if (tab.value === 'audit') await loadAudits();
+    });
+
+    return {
+      user, navHtml, canWrite, canAudit, tab, ImsAuth,
+      settingsLoading, saving, form, dirty, settingGroups, unknownKeys, seqExample, save,
+      audits, users, auditLoading, auditQuery, auditPage, auditSize, auditTotal, tableHeight,
+      actionOptions, userLabel, operatorName, actionLabel, actionTag, resourceLabel,
+      formatTime, formatDetail, detailSummary, searchAudits, resetAudits, loadAudits, onTabChange
+    };
   }
 }).use(ElementPlus).mount('#app');
 </script>

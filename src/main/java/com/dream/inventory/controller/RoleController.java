@@ -21,7 +21,7 @@ public class RoleController {
     private final RoleService roleService;
 
     @GetMapping("/roles")
-    @PreAuthorize("hasAuthority('system:role')")
+    @PreAuthorize("hasAnyAuthority('system:role', 'system:user')")
     public Result<List<RoleVO>> listRoles() {
         return Result.ok(roleService.listRoles());
     }

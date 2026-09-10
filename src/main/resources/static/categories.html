@@ -24,7 +24,7 @@
     <header class="bg-white border-b border-slate-200 px-8 py-4 flex items-center justify-between">
       <div>
         <h2 class="text-xl font-semibold text-slate-800">商品分类</h2>
-        <p class="text-sm text-slate-500 mt-0.5">树形维护商品分类层级</p>
+        <p class="text-sm text-slate-500 mt-0.5">维护分类层级，查看各分类挂载的 SPU</p>
       </div>
       <div class="flex gap-2 items-center">
         <el-button v-if="canWrite" type="primary" @click="openCreate(null)">新增根分类</el-button>
@@ -32,38 +32,173 @@
       </div>
     </header>
 
-    <div class="flex-1 p-8">
-      <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-6 max-w-2xl">
-        <el-tree
-          v-loading="loading"
-          :data="tree"
-          node-key="id"
-          default-expand-all
-          :expand-on-click-node="false"
-          :props="{ label: 'name', children: 'children' }"
-        >
-          <template #default="{ node, data }">
-            <div class="flex items-center justify-between w-full pr-4 group">
-              <span>{{ data.name }} <span class="text-xs text-slate-400">(#{{ data.sortOrder }})</span></span>
-              <span v-if="canWrite" class="opacity-0 group-hover:opacity-100 transition">
-                <el-button link type="primary" size="small" @click.stop="openCreate(data)">子分类</el-button>
-                <el-button link type="primary" size="small" @click.stop="openEdit(data)">编辑</el-button>
-                <el-button link type="danger" size="small" @click.stop="remove(data)">删除</el-button>
-              </span>
+    <div class="flex-1 p-8 space-y-4 flex flex-col min-h-0">
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 shrink-0">
+        <div class="stat-card">
+          <div class="stat-label">分类总数</div>
+          <div class="stat-value">{{ stats.total }}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">根分类</div>
+          <div class="stat-value">{{ stats.roots }}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">叶子分类</div>
+          <div class="stat-value">{{ stats.leaves }}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">已挂 SPU</div>
+          <div class="stat-value text-blue-600">{{ stats.products }}</div>
+        </div>
+      </div>
+
+      <div class="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-12 gap-4">
+        <section class="xl:col-span-4 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col min-h-[420px] overflow-hidden">
+          <div class="px-4 py-3 border-b border-slate-100 flex flex-wrap gap-2 items-center">
+            <el-input
+              v-model="filterText"
+              placeholder="搜索分类名称"
+              clearable
+              class="flex-1 min-w-[140px]"
+            />
+            <el-button size="small" @click="expandAll">展开</el-button>
+            <el-button size="small" @click="collapseAll">收起</el-button>
+          </div>
+          <div class="flex-1 overflow-y-auto px-3 py-3">
+            <el-tree
+              ref="treeRef"
+              v-loading="loading"
+              :data="tree"
+              node-key="id"
+              highlight-current
+              default-expand-all
+              :expand-on-click-node="false"
+              :filter-node-method="filterNode"
+              :props="{ label: 'name', children: 'children' }"
+              @node-click="onNodeClick"
+            >
+              <template #default="{ data }">
+                <div class="flex items-center justify-between w-full pr-1 group min-w-0">
+                  <div class="flex items-center gap-2 min-w-0">
+                    <span class="truncate font-medium text-slate-800">{{ data.name }}</span>
+                    <el-tag v-if="data.totalProductCount" size="small" type="info" effect="plain" class="shrink-0">
+                      {{ data.totalProductCount }}
+                    </el-tag>
+                  </div>
+                  <span v-if="canWrite" class="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity cat-actions">
+                    <el-button link type="primary" size="small" @click.stop="openCreate(data)">子级</el-button>
+                    <el-button link type="primary" size="small" @click.stop="openEdit(data)">编辑</el-button>
+                    <el-button link type="danger" size="small" @click.stop="remove(data)">删除</el-button>
+                  </span>
+                </div>
+              </template>
+            </el-tree>
+            <el-empty v-if="!loading && !tree.length" description="暂无分类，请先新增根分类" />
+          </div>
+          <div class="px-4 py-2 border-t border-slate-100 text-xs text-slate-400">
+            数字角标为该分类（含下级）挂载的 SPU 数量
+          </div>
+        </section>
+
+        <section class="xl:col-span-8 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col min-h-[420px] overflow-hidden">
+          <template v-if="selected">
+            <div class="px-6 py-4 border-b border-slate-100 flex flex-wrap items-start justify-between gap-3">
+              <div class="min-w-0">
+                <div class="text-xs text-slate-400 mb-1">{{ selectedPath }}</div>
+                <h3 class="text-lg font-semibold text-slate-800">{{ selected.name }}</h3>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <el-button v-if="canWrite" type="primary" plain @click="openCreate(selected)">新增子分类</el-button>
+                <el-button v-if="canWrite" @click="openEdit(selected)">编辑</el-button>
+                <el-button v-if="canWrite" type="danger" plain @click="remove(selected)">删除</el-button>
+                <el-button @click="goProducts">查看商品 SPU</el-button>
+              </div>
+            </div>
+
+            <div class="flex-1 overflow-y-auto px-6 py-4 space-y-5">
+              <el-descriptions :column="3" border size="small">
+                <el-descriptions-item label="分类 ID">{{ selected.id }}</el-descriptions-item>
+                <el-descriptions-item label="排序">{{ selected.sortOrder }}</el-descriptions-item>
+                <el-descriptions-item label="子分类">{{ selected.childCount || 0 }}</el-descriptions-item>
+                <el-descriptions-item label="本级 SPU">{{ selected.productCount || 0 }}</el-descriptions-item>
+                <el-descriptions-item label="含下级 SPU">{{ selected.totalProductCount || 0 }}</el-descriptions-item>
+                <el-descriptions-item label="层级">{{ selectedDepth }} 级</el-descriptions-item>
+                <el-descriptions-item label="创建时间" :span="2">{{ formatTime(selected.createdAt) }}</el-descriptions-item>
+                <el-descriptions-item label="更新时间">{{ formatTime(selected.updatedAt) }}</el-descriptions-item>
+              </el-descriptions>
+
+              <div v-if="selected.children && selected.children.length">
+                <div class="flex items-center justify-between mb-2">
+                  <h4 class="text-sm font-semibold text-slate-700">子分类</h4>
+                  <span class="text-xs text-slate-400">点击可切换到该分类</span>
+                </div>
+                <el-table :data="selected.children" size="small" stripe @row-click="onNodeClick">
+                  <el-table-column prop="name" label="名称" min-width="140" />
+                  <el-table-column prop="sortOrder" label="排序" width="80" align="center" />
+                  <el-table-column label="子级" width="80" align="center">
+                    <template #default="{ row }">{{ row.childCount || 0 }}</template>
+                  </el-table-column>
+                  <el-table-column label="SPU（含下级）" width="130" align="center">
+                    <template #default="{ row }">{{ row.totalProductCount || 0 }}</template>
+                  </el-table-column>
+                </el-table>
+              </div>
+
+              <div>
+                <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+                  <h4 class="text-sm font-semibold text-slate-700">挂载商品</h4>
+                  <el-checkbox v-model="includeDescendants" :disabled="!selected.childCount" @change="onIncludeChange">
+                    含下级分类
+                  </el-checkbox>
+                </div>
+                <el-table :data="products" v-loading="productLoading" size="small" stripe empty-text="该范围暂无商品">
+                  <el-table-column prop="name" label="名称" min-width="160" show-overflow-tooltip />
+                  <el-table-column prop="brand" label="品牌" min-width="100">
+                    <template #default="{ row }">{{ row.brand || '-' }}</template>
+                  </el-table-column>
+                  <el-table-column prop="unit" label="单位" width="72" align="center">
+                    <template #default="{ row }">{{ row.unit || '-' }}</template>
+                  </el-table-column>
+                  <el-table-column label="状态" width="88" align="center">
+                    <template #default="{ row }">
+                      <el-tag :type="row.status === 1 ? 'success' : 'info'" size="small">
+                        {{ row.status === 1 ? '启用' : '停用' }}
+                      </el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="操作" width="88" align="center">
+                    <template #default="{ row }">
+                      <el-button link type="primary" @click="goSkus(row)">SKU</el-button>
+                    </template>
+                  </el-table-column>
+                </el-table>
+                <div class="flex justify-end pt-3" v-if="productTotal > productSize || productPage > 1">
+                  <el-pagination
+                    v-model:current-page="productPage"
+                    v-model:page-size="productSize"
+                    :total="productTotal"
+                    :page-sizes="[10, 20, 50]"
+                    layout="total, prev, pager, next"
+                    @change="loadProducts"
+                  />
+                </div>
+              </div>
             </div>
           </template>
-        </el-tree>
-        <el-empty v-if="!loading && !tree.length" description="暂无分类" />
+          <el-empty v-else class="flex-1" description="点击左侧分类查看详情、子级与挂载商品" />
+        </section>
       </div>
     </div>
 
-    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="420px" destroy-on-close>
-      <el-form :model="form" label-width="80px">
+    <el-dialog v-model="dialogVisible" :title="dialogTitle" width="460px" destroy-on-close>
+      <p v-if="parentLabel" class="text-sm text-slate-500 mb-3">上级分类：{{ parentLabel }}</p>
+      <el-form :model="form" label-width="88px">
         <el-form-item label="分类名称" required>
-          <el-input v-model="form.name" />
+          <el-input v-model="form.name" maxlength="50" show-word-limit placeholder="如：数码配件" />
         </el-form-item>
         <el-form-item label="排序">
-          <el-input-number v-model="form.sortOrder" :min="0" class="w-full" />
+          <el-input-number v-model="form.sortOrder" :min="0" :max="9999" class="w-full" />
+          <p class="text-xs text-slate-400 mt-1">同级按数字升序排列</p>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -77,9 +212,17 @@
   .nav-link { display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:8px; font-size:14px; color:#cbd5e1; transition:.15s; }
   .nav-link:hover { background:#1e293b; color:#fff; }
   .nav-link.active { background:#2563eb; color:#fff; font-weight:500; }
+  .stat-card { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:16px 20px; }
+  .stat-label { font-size:.8125rem; color:#64748b; }
+  .stat-value { font-size:1.5rem; font-weight:700; color:#0f172a; margin-top:4px; }
+  .el-tree-node__content { height:auto; min-height:36px; padding:4px 0; }
+  .el-tree-node.is-current > .el-tree-node__content { background:#eff6ff; }
+  .el-tree-node.is-current > .el-tree-node__content .cat-actions { opacity:1; }
+  .el-table table { width:100% !important; border-collapse:separate !important; }
+  .el-table th.el-table__cell, .el-table td.el-table__cell { display:table-cell !important; }
 </style>
 <script>
-const { createApp, ref, reactive, computed, onMounted } = Vue;
+const { createApp, ref, reactive, computed, watch, nextTick, onMounted } = Vue;
 
 createApp({
   setup() {
@@ -89,17 +232,152 @@ createApp({
     const loading = ref(false);
     const submitting = ref(false);
     const tree = ref([]);
+    const treeRef = ref(null);
+    const filterText = ref('');
+    const selected = ref(null);
     const dialogVisible = ref(false);
     const isEdit = ref(false);
     const editId = ref(null);
     const parentId = ref(null);
+    const parentLabel = ref('');
     const form = reactive({ name: '', sortOrder: 0 });
+    const includeDescendants = ref(true);
+    const products = ref([]);
+    const productLoading = ref(false);
+    const productPage = ref(1);
+    const productSize = ref(10);
+    const productTotal = ref(0);
+
     const dialogTitle = computed(() => isEdit.value ? '编辑分类' : (parentId.value ? '新增子分类' : '新增根分类'));
 
-    async function loadTree() {
+    const flatList = computed(() => {
+      const out = [];
+      function walk(nodes, path, depth) {
+        (nodes || []).forEach(n => {
+          const nextPath = path.concat(n.name);
+          out.push({ ...n, path: nextPath, depth });
+          walk(n.children, nextPath, depth + 1);
+        });
+      }
+      walk(tree.value, [], 1);
+      return out;
+    });
+
+    const idMap = computed(() => {
+      const map = {};
+      flatList.value.forEach(n => { map[n.id] = n; });
+      return map;
+    });
+
+    const stats = computed(() => {
+      const all = flatList.value;
+      return {
+        total: all.length,
+        roots: tree.value.length,
+        leaves: all.filter(n => !n.childCount).length,
+        products: all.reduce((sum, n) => sum + (n.productCount || 0), 0)
+      };
+    });
+
+    const selectedPath = computed(() => {
+      if (!selected.value) return '';
+      const node = idMap.value[selected.value.id];
+      return node ? node.path.join(' / ') : selected.value.name;
+    });
+
+    const selectedDepth = computed(() => {
+      if (!selected.value) return '-';
+      const node = idMap.value[selected.value.id];
+      return node ? node.depth : '-';
+    });
+
+    watch(filterText, (val) => {
+      treeRef.value && treeRef.value.filter(val);
+    });
+
+    function filterNode(value, data) {
+      if (!value) return true;
+      const q = value.toLowerCase();
+      if ((data.name || '').toLowerCase().includes(q)) return true;
+      return (data.children || []).some(child => filterNode(value, child));
+    }
+
+    function findNode(nodes, id) {
+      for (const n of nodes || []) {
+        if (n.id === id) return n;
+        const child = findNode(n.children, id);
+        if (child) return child;
+      }
+      return null;
+    }
+
+    function setCurrent(id) {
+      nextTick(() => {
+        if (treeRef.value && id != null) {
+          treeRef.value.setCurrentKey(id);
+        }
+      });
+    }
+
+    function expandAll() {
+      const store = treeRef.value && treeRef.value.store;
+      if (!store || !store._getAllNodes) return;
+      store._getAllNodes().forEach(n => { n.expanded = true; });
+    }
+
+    function collapseAll() {
+      const store = treeRef.value && treeRef.value.store;
+      if (!store || !store._getAllNodes) return;
+      store._getAllNodes().forEach(n => { n.expanded = false; });
+    }
+
+    function applyCounts(nodes, counts, useFallback) {
+      return (nodes || []).map(n => {
+        const children = applyCounts(n.children, counts, useFallback);
+        const productCount = n.productCount != null ? n.productCount : (useFallback ? (counts[n.id] || 0) : 0);
+        const totalProductCount = n.totalProductCount != null
+          ? n.totalProductCount
+          : productCount + children.reduce((s, c) => s + (c.totalProductCount || 0), 0);
+        return {
+          ...n,
+          children,
+          childCount: n.childCount != null ? n.childCount : children.length,
+          productCount,
+          totalProductCount
+        };
+      });
+    }
+
+    function hasCountFields(nodes) {
+      return (nodes || []).some(n => n.productCount != null || n.totalProductCount != null || hasCountFields(n.children));
+    }
+
+    async function loadTree(keepId) {
       loading.value = true;
+      const restoreId = keepId !== undefined ? keepId : (selected.value && selected.value.id);
       try {
-        tree.value = await ImsAuth.api('/categories');
+        let data = await ImsAuth.api('/categories') || [];
+        if (!hasCountFields(data)) {
+          const prodData = await ImsAuth.api('/products?page=0&size=500');
+          const counts = {};
+          (prodData.items || []).forEach(p => {
+            if (p.categoryId != null) counts[p.categoryId] = (counts[p.categoryId] || 0) + 1;
+          });
+          data = applyCounts(data, counts, true);
+        } else {
+          data = applyCounts(data, {}, false);
+        }
+        tree.value = data;
+        if (restoreId) {
+          const node = findNode(tree.value, restoreId);
+          selected.value = node;
+          setCurrent(node ? node.id : null);
+          if (node) loadProducts();
+          else {
+            products.value = [];
+            productTotal.value = 0;
+          }
+        }
       } catch (e) {
         ElementPlus.ElMessage.error(e.message);
       } finally {
@@ -107,22 +385,76 @@ createApp({
       }
     }
 
+    function onNodeClick(data) {
+      selected.value = data;
+      includeDescendants.value = !!(data.childCount);
+      productPage.value = 1;
+      setCurrent(data.id);
+      loadProducts();
+    }
+
+    function onIncludeChange() {
+      productPage.value = 1;
+      loadProducts();
+    }
+
+    function collectCategoryIds(node, withDescendants) {
+      const ids = [node.id];
+      if (withDescendants) {
+        (node.children || []).forEach(c => ids.push(...collectCategoryIds(c, true)));
+      }
+      return ids;
+    }
+
+    async function loadProducts() {
+      if (!selected.value) {
+        products.value = [];
+        productTotal.value = 0;
+        return;
+      }
+      productLoading.value = true;
+      try {
+        const params = new URLSearchParams({
+          page: productPage.value - 1,
+          size: productSize.value,
+          categoryId: selected.value.id,
+          includeDescendants: includeDescendants.value ? 'true' : 'false'
+        });
+        const data = await ImsAuth.api('/products?' + params);
+        const allowed = new Set(collectCategoryIds(selected.value, includeDescendants.value));
+        const raw = data.items || [];
+        const filtered = raw.filter(p => allowed.has(p.categoryId));
+        products.value = filtered;
+        productTotal.value = filtered.length !== raw.length ? filtered.length : (data.total || 0);
+      } catch (e) {
+        ElementPlus.ElMessage.error(e.message);
+      } finally {
+        productLoading.value = false;
+      }
+    }
+
     function openCreate(parent) {
       isEdit.value = false;
       editId.value = null;
       parentId.value = parent ? parent.id : null;
+      parentLabel.value = parent ? (idMap.value[parent.id]?.path.join(' / ') || parent.name) : '';
       form.name = '';
-      form.sortOrder = 0;
+      form.sortOrder = parent ? ((parent.children || []).length + 1) * 10 : (tree.value.length + 1) * 10;
       dialogVisible.value = true;
     }
 
     function openEdit(data) {
       isEdit.value = true;
       editId.value = data.id;
-      parentId.value = null;
+      parentId.value = data.parentId || null;
+      parentLabel.value = data.parentId && idMap.value[data.parentId]
+        ? idMap.value[data.parentId].path.join(' / ')
+        : (data.parentId ? '#' + data.parentId : '根分类');
       form.name = data.name;
       form.sortOrder = data.sortOrder || 0;
       dialogVisible.value = true;
+      selected.value = findNode(tree.value, data.id) || data;
+      setCurrent(data.id);
     }
 
     async function submit() {
@@ -141,7 +473,8 @@ createApp({
         }
         ElementPlus.ElMessage.success('保存成功');
         dialogVisible.value = false;
-        loadTree();
+        const keepId = isEdit.value ? editId.value : (parentId.value || selected.value?.id);
+        await loadTree(keepId);
       } catch (e) {
         ElementPlus.ElMessage.error(e.message);
       } finally {
@@ -151,24 +484,52 @@ createApp({
 
     async function remove(data) {
       try {
-        await ElementPlus.ElMessageBox.confirm(`确定删除分类「${data.name}」？`, '确认', { type: 'warning' });
+        await ElementPlus.ElMessageBox.confirm(
+          `确定删除分类「${data.name}」？存在子分类或挂载商品时无法删除。`,
+          '确认删除',
+          { type: 'warning' }
+        );
         await ImsAuth.api('/categories/' + data.id, { method: 'DELETE' });
         ElementPlus.ElMessage.success('删除成功');
-        loadTree();
+        const keepId = selected.value && selected.value.id === data.id ? data.parentId : (selected.value && selected.value.id);
+        if (selected.value && selected.value.id === data.id) {
+          selected.value = null;
+        }
+        await loadTree(keepId);
       } catch (e) {
         if (e !== 'cancel') ElementPlus.ElMessage.error(e.message || e);
       }
     }
 
+    function goProducts() {
+      location.href = 'products.html';
+    }
+
+    function goSkus(row) {
+      location.href = 'skus.html?spuId=' + row.id;
+    }
+
+    function formatTime(v) {
+      if (v == null || v === '') return '-';
+      const d = typeof v === 'number' ? new Date(v > 1e12 ? v : v * 1000) : new Date(v);
+      if (Number.isNaN(d.getTime())) return String(v);
+      const pad = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    }
+
     onMounted(() => {
       if (!ImsAuth.requireAuth()) return;
       user.value = ImsAuth.getUser();
-      loadTree();
+      loadTree(null);
     });
 
     return {
-      user, navHtml, canWrite, loading, submitting, tree, dialogVisible, form, dialogTitle,
-      openCreate, openEdit, submit, remove, ImsAuth
+      user, navHtml, canWrite, loading, submitting, tree, treeRef, filterText, selected,
+      dialogVisible, form, dialogTitle, parentLabel, includeDescendants,
+      products, productLoading, productPage, productSize, productTotal,
+      stats, selectedPath, selectedDepth, ImsAuth,
+      filterNode, expandAll, collapseAll, onNodeClick, openCreate, openEdit, submit, remove,
+      loadProducts, onIncludeChange, goProducts, goSkus, formatTime
     };
   }
 }).use(ElementPlus).mount('#app');

@@ -20,9 +20,12 @@ public class SafetyStockController {
     @GetMapping
     @PreAuthorize("hasAuthority('safety-stock:write') or hasAuthority('alert:read')")
     public Result<PageResult<SafetyStockVO>> list(
+            @RequestParam(required = false) String keyword,
+            @RequestParam(required = false) Long warehouseId,
+            @RequestParam(required = false) Integer enabled,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return Result.ok(safetyStockService.list(page, size));
+        return Result.ok(safetyStockService.list(keyword, warehouseId, enabled, page, size));
     }
 
     @PostMapping

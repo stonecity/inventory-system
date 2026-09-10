@@ -8,6 +8,7 @@ import com.dream.inventory.dto.warehouse.WarehouseUpdateRequest;
 import com.dream.inventory.dto.warehouse.WarehouseVO;
 import com.dream.inventory.entity.Warehouse;
 import com.dream.inventory.entity.enums.WarehouseType;
+import com.dream.inventory.repository.LocationRepository;
 import com.dream.inventory.repository.WarehouseRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -18,18 +19,27 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
 @Service
 @RequiredArgsConstructor
 public class WarehouseService {
 
     private final WarehouseRepository warehouseRepository;
+    private final LocationRepository locationRepository;
 
     public PageResult<WarehouseVO> list(String keyword, WarehouseType type, Integer status, int page, int size) {
         String kw = StringUtils.hasText(keyword) ? keyword.trim() : null;
         PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "id"));
         Page<Warehouse> result = warehouseRepository.search(kw, type, status, pageable);
+        Map<Long, Long> locationCounts = locationCountsOf(result.getContent());
         return PageResult.of(
-                result.getContent().stream().map(this::toVO).toList(),
+                result.getContent().stream()
+                        .map(w -> toVO(w, locationCounts.getOrDefault(w.getId(), 0L)))
+                        .toList(),
                 result.getTotalElements(),
                 page,
                 size
@@ -54,7 +64,7 @@ public class WarehouseService {
                 .status(1)
                 .build();
         try {
-            return toVO(warehouseRepository.save(warehouse));
+            return toVO(warehouseRepository.save(warehouse), 0L);
         } catch (DataIntegrityViolationException ex) {
             throw new BizException(ErrorCode.VALIDATION_ERROR, "仓库编码已存在");
         }
@@ -85,7 +95,24 @@ public class WarehouseService {
                 .orElseThrow(() -> new BizException(ErrorCode.NOT_FOUND, "仓库不存在"));
     }
 
+    private Map<Long, Long> locationCountsOf(List<Warehouse> warehouses) {
+        if (warehouses == null || warehouses.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        List<Long> ids = warehouses.stream().map(Warehouse::getId).toList();
+        return locationRepository.countGroupedByWarehouseId(ids).stream()
+                .filter(v -> v.getWarehouseId() != null)
+                .collect(Collectors.toMap(
+                        LocationRepository.LocationCountView::getWarehouseId,
+                        v -> v.getCnt() == null ? 0L : v.getCnt(),
+                        (a, b) -> a));
+    }
+
     private WarehouseVO toVO(Warehouse warehouse) {
+        return toVO(warehouse, locationRepository.countByWarehouseId(warehouse.getId()));
+    }
+
+    private WarehouseVO toVO(Warehouse warehouse, long locationCount) {
         return WarehouseVO.builder()
                 .id(warehouse.getId())
                 .code(warehouse.getCode())
@@ -94,6 +121,7 @@ public class WarehouseService {
                 .address(warehouse.getAddress())
                 .managerUserId(warehouse.getManagerUserId())
                 .status(warehouse.getStatus())
+                .locationCount((int) locationCount)
                 .createdAt(warehouse.getCreatedAt())
                 .updatedAt(warehouse.getUpdatedAt())
                 .build();

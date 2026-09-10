@@ -3,6 +3,7 @@ package com.dream.inventory.dto.user;
 import lombok.Builder;
 import lombok.Data;
 
+import java.time.Instant;
 import java.util.Set;
 
 @Data
@@ -15,6 +16,7 @@ public class UserVO {
     private String phone;
     private String email;
     private Integer status;
+    private Instant lastLoginAt;
     private Set<String> roleCodes;
     private Set<Long> warehouseIds;
 }

@@ -13,7 +13,10 @@ public interface SupplierRepository extends JpaRepository<Supplier, Long> {
 
     @Query("""
             SELECT s FROM Supplier s
-            WHERE (:keyword IS NULL OR s.code LIKE CONCAT('%', :keyword, '%') OR s.name LIKE CONCAT('%', :keyword, '%'))
+            WHERE (:keyword IS NULL OR s.code LIKE CONCAT('%', :keyword, '%')
+                OR s.name LIKE CONCAT('%', :keyword, '%')
+                OR s.contactPerson LIKE CONCAT('%', :keyword, '%')
+                OR s.phone LIKE CONCAT('%', :keyword, '%'))
               AND (:status IS NULL OR s.status = :status)
             """)
     Page<Supplier> search(@Param("keyword") String keyword, @Param("status") Integer status, Pageable pageable);

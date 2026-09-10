@@ -2,6 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>角色权限 - IMS</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
@@ -9,58 +10,411 @@
   <script src="https://unpkg.com/element-plus"></script>
   <script src="/js/auth.js"></script>
   <script src="/js/nav.js"></script>
+  <script>tailwind.config = { theme: { extend: { colors: { brand: { 600: '#2563eb' } } } } }</script>
 </head>
 <body class="bg-slate-50">
 <div id="app" class="flex min-h-screen">
   <aside class="w-64 bg-slate-900 text-white flex flex-col shrink-0">
     <div class="px-6 py-5 border-b border-slate-700"><h1 class="text-lg font-bold">IMS 库存管理</h1></div>
     <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto" v-html="navHtml"></nav>
+    <div class="px-6 py-4 border-t border-slate-700 text-xs text-slate-400">{{ user?.realName }}</div>
   </aside>
-  <main class="flex-1 p-8">
-    <div class="flex justify-between mb-4"><h2 class="text-xl font-semibold">角色权限</h2><el-button type="primary" @click="createDlg=true">新建角色</el-button></div>
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <el-table :data="roles" highlight-current-row @current-change="selectRole" border>
-        <el-table-column prop="code" label="编码" />
-        <el-table-column prop="name" label="名称" />
-      </el-table>
-      <div class="bg-white border rounded-xl p-4" v-if="current">
-        <h3 class="font-semibold mb-3">{{ current.name }} 权限</h3>
-        <el-checkbox-group v-model="checked">
-          <div v-for="p in permissions" :key="p.code" class="mb-1"><el-checkbox :label="p.code">{{ p.name }} ({{ p.code }})</el-checkbox></div>
-        </el-checkbox-group>
-        <el-button class="mt-4" type="primary" @click="savePerms">保存权限</el-button>
+
+  <main class="flex-1 flex flex-col min-w-0">
+    <header class="bg-white border-b border-slate-200 px-8 py-4 flex items-center justify-between">
+      <div>
+        <h2 class="text-xl font-semibold text-slate-800">角色权限</h2>
+        <p class="text-sm text-slate-500 mt-0.5">维护角色，按模块勾选功能权限；保存后立即生效</p>
+      </div>
+      <div class="flex gap-2 items-center">
+        <el-button v-if="canWrite" type="primary" @click="openCreate">新建角色</el-button>
+        <el-button @click="ImsAuth.logout()">退出</el-button>
+      </div>
+    </header>
+
+    <div class="flex-1 p-8 space-y-4 flex flex-col min-h-0">
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 shrink-0">
+        <div class="stat-card">
+          <div class="stat-label">角色总数</div>
+          <div class="stat-value">{{ roles.length }}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">权限点</div>
+          <div class="stat-value">{{ permissions.length }}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">当前已授权</div>
+          <div class="stat-value text-blue-600">{{ current ? checkedCount + ' / ' + permissions.length : '—' }}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">内置角色</div>
+          <div class="stat-value">{{ builtinCount }}</div>
+        </div>
+      </div>
+
+      <div class="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-12 gap-4">
+        <section class="xl:col-span-4 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col min-h-[420px] overflow-hidden">
+          <div class="px-4 py-3 border-b border-slate-100">
+            <el-input v-model="roleKeyword" placeholder="搜索角色名称 / 编码" clearable />
+          </div>
+          <div class="flex-1 overflow-y-auto p-3 space-y-2" v-loading="loading">
+            <button
+              v-for="role in filteredRoles"
+              :key="role.id"
+              type="button"
+              class="role-card w-full text-left"
+              :class="{ 'is-active': current && current.id === role.id }"
+              @click="selectRole(role)"
+            >
+              <div class="flex items-start justify-between gap-2">
+                <div class="min-w-0">
+                  <div class="font-medium text-slate-800 truncate">{{ role.name }}</div>
+                  <div class="text-xs text-slate-400 mt-0.5 font-mono tracking-wide">{{ role.code }}</div>
+                </div>
+                <el-tag v-if="isBuiltin(role)" size="small" type="warning" effect="plain">内置</el-tag>
+              </div>
+              <p class="text-xs text-slate-500 mt-2 line-clamp-2 min-h-[2rem]">{{ role.description || '暂无描述' }}</p>
+              <div class="mt-3 flex items-center gap-2">
+                <div class="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                  <div class="h-full bg-blue-500 rounded-full" :style="{ width: permRatio(role) + '%' }"></div>
+                </div>
+                <span class="text-xs text-slate-500 shrink-0">{{ permCount(role) }} 项</span>
+              </div>
+            </button>
+            <div v-if="!loading && !filteredRoles.length" class="text-center text-sm text-slate-400 py-12">暂无匹配角色</div>
+          </div>
+          <div class="px-4 py-2 border-t border-slate-100 text-xs text-slate-400">共 {{ filteredRoles.length }} 个角色</div>
+        </section>
+
+        <section class="xl:col-span-8 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col min-h-[420px] overflow-hidden">
+          <template v-if="current">
+            <div class="px-5 py-3 border-b border-slate-100 flex flex-wrap items-center gap-3">
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2">
+                  <h3 class="font-semibold text-slate-800 truncate">{{ current.name }}</h3>
+                  <el-tag v-if="isDirty" size="small" type="warning">未保存</el-tag>
+                </div>
+                <p class="text-xs text-slate-400 mt-0.5">{{ current.description || current.code }}</p>
+              </div>
+              <el-button v-if="canWrite" type="primary" :loading="saving" :disabled="!isDirty" @click="savePerms">保存权限</el-button>
+            </div>
+            <div class="px-5 py-3 border-b border-slate-100 flex flex-wrap gap-2 items-center">
+              <el-input v-model="permFilter" placeholder="筛选权限名称 / 编码" clearable class="flex-1 min-w-[180px]" />
+              <el-button size="small" @click="expandAll">展开</el-button>
+              <el-button size="small" @click="collapseAll">收起</el-button>
+              <el-button v-if="canWrite" size="small" @click="checkAll">全选</el-button>
+              <el-button v-if="canWrite" size="small" @click="uncheckAll">清空</el-button>
+            </div>
+            <div class="flex-1 overflow-y-auto px-4 py-3">
+              <el-tree
+                ref="treeRef"
+                :key="treeKey"
+                :data="permTree"
+                show-checkbox
+                node-key="key"
+                default-expand-all
+                :default-checked-keys="checked"
+                :filter-node-method="filterPerm"
+                :props="{ label: 'label', children: 'children', disabled: 'disabled' }"
+                @check="onCheck"
+              >
+                <template #default="{ data }">
+                  <div class="flex items-center gap-2 py-0.5 min-w-0">
+                    <span class="text-sm text-slate-800">{{ data.label }}</span>
+                    <span v-if="data.code" class="text-xs text-slate-400 font-mono truncate">{{ data.code }}</span>
+                    <el-tag v-if="data.virtual" size="small" type="info" effect="plain">模块</el-tag>
+                  </div>
+                </template>
+              </el-tree>
+            </div>
+            <div class="px-5 py-2 border-t border-slate-100 text-xs text-slate-400">
+              勾选父节点将级联子权限；仅保存真实权限点，模块分组本身不会写入。
+            </div>
+          </template>
+          <div v-else class="flex-1 flex flex-col items-center justify-center text-slate-400 px-8">
+            <div class="text-4xl mb-3">🔐</div>
+            <p class="text-sm">请选择左侧角色，配置其功能权限</p>
+          </div>
+        </section>
       </div>
     </div>
-    <el-dialog v-model="createDlg" title="新建角色" width="420px">
-      <el-form label-width="80px">
-        <el-form-item label="编码"><el-input v-model="newRole.code" placeholder="ROLE_XXX" /></el-form-item>
-        <el-form-item label="名称"><el-input v-model="newRole.name" /></el-form-item>
-        <el-form-item label="描述"><el-input v-model="newRole.description" /></el-form-item>
+
+    <el-dialog v-model="createDlg" title="新建角色" width="480px" destroy-on-close @closed="resetCreate">
+      <el-form ref="formRef" :model="newRole" :rules="rules" label-width="80px">
+        <el-form-item label="编码" prop="code">
+          <el-input v-model="newRole.code" placeholder="ROLE_XXX" maxlength="50" />
+        </el-form-item>
+        <el-form-item label="名称" prop="name">
+          <el-input v-model="newRole.name" placeholder="如：财务只读" maxlength="50" />
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input v-model="newRole.description" type="textarea" :rows="2" maxlength="200" show-word-limit placeholder="可选，说明该角色职责" />
+        </el-form-item>
       </el-form>
-      <template #footer><el-button type="primary" @click="createRole">创建</el-button></template>
+      <template #footer>
+        <el-button @click="createDlg = false">取消</el-button>
+        <el-button type="primary" :loading="creating" @click="createRole">创建</el-button>
+      </template>
     </el-dialog>
   </main>
 </div>
-<style>.nav-link{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;font-size:14px;color:#cbd5e1}.nav-link.active{background:#2563eb;color:#fff}</style>
+<style>
+  .nav-link { display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:8px; font-size:14px; color:#cbd5e1; transition:.15s; }
+  .nav-link:hover { background:#1e293b; color:#fff; }
+  .nav-link.active { background:#2563eb; color:#fff; font-weight:500; }
+  .stat-card { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:16px 20px; }
+  .stat-label { font-size:.8125rem; color:#64748b; }
+  .stat-value { font-size:1.5rem; font-weight:700; color:#0f172a; margin-top:4px; }
+  .role-card { border:1px solid #e2e8f0; border-radius:12px; padding:14px 16px; background:#fff; transition:.15s; }
+  .role-card:hover { border-color:#93c5fd; background:#f8fbff; }
+  .role-card.is-active { border-color:#2563eb; background:#eff6ff; box-shadow:0 0 0 1px #2563eb inset; }
+  .el-tree-node__content { height:auto; min-height:36px; padding:4px 0; }
+</style>
 <script>
-const { createApp, ref, computed, onMounted } = Vue;
+const { createApp, ref, reactive, computed, watch, nextTick, onMounted } = Vue;
+
+const BUILTIN = ['ROLE_ADMIN', 'ROLE_WAREHOUSE', 'ROLE_BIZ'];
+const MODULE_ORDER = ['system', 'master', 'purchase', 'sale', 'return', 'transfer', 'stocktake', 'inventory', 'alert'];
+const MODULE_LABELS = {
+  system: '系统管理',
+  master: '基础数据',
+  purchase: '采购入库',
+  sale: '销售出库',
+  return: '退货',
+  transfer: '调拨',
+  stocktake: '盘点',
+  inventory: '库存',
+  alert: '预警'
+};
+
 createApp({
   setup() {
+    const user = ref(ImsAuth.getUser());
     const navHtml = computed(() => ImsNav.render('roles.html'));
-    const roles = ref([]), permissions = ref([]), current = ref(null), checked = ref([]), createDlg = ref(false);
-    const newRole = ref({ code:'', name:'', description:'' });
-    async function load() { roles.value = await ImsAuth.api('/roles'); permissions.value = await ImsAuth.api('/permissions'); }
-    function selectRole(row) { current.value = row; checked.value = [...(row.permissionCodes||[])]; }
+    const canWrite = computed(() => ImsAuth.hasPermission('system:role'));
+    const loading = ref(false);
+    const saving = ref(false);
+    const creating = ref(false);
+    const roles = ref([]);
+    const permissions = ref([]);
+    const current = ref(null);
+    const checked = ref([]);
+    const snapshot = ref('');
+    const createDlg = ref(false);
+    const formRef = ref(null);
+    const treeRef = ref(null);
+    const treeKey = ref(0);
+    const roleKeyword = ref('');
+    const permFilter = ref('');
+    const newRole = reactive({ code: '', name: '', description: '' });
+    const rules = {
+      code: [
+        { required: true, message: '请输入角色编码', trigger: 'blur' },
+        { pattern: /^ROLE_[A-Z0-9_]+$/, message: '格式为 ROLE_ 加英文大写/数字/下划线', trigger: 'blur' }
+      ],
+      name: [{ required: true, message: '请输入角色名称', trigger: 'blur' }]
+    };
+
+    const builtinCount = computed(() => roles.value.filter(r => BUILTIN.includes(r.code)).length);
+    const checkedCount = computed(() => checked.value.length);
+    const isDirty = computed(() => current.value && snapshot.value !== normalizeKeys(checked.value));
+    const filteredRoles = computed(() => {
+      const q = roleKeyword.value.trim().toLowerCase();
+      if (!q) return roles.value;
+      return roles.value.filter(r =>
+        (r.name || '').toLowerCase().includes(q) || (r.code || '').toLowerCase().includes(q)
+      );
+    });
+    const permTree = computed(() => buildPermTree(permissions.value, !canWrite.value));
+
+    function normalizeKeys(keys) {
+      return [...keys].filter(k => !String(k).startsWith('mod:')).sort().join(',');
+    }
+    function isBuiltin(role) { return BUILTIN.includes(role.code); }
+    function permCount(role) { return (role.permissionCodes || []).length; }
+    function permRatio(role) {
+      if (!permissions.value.length) return 0;
+      return Math.round(permCount(role) / permissions.value.length * 100);
+    }
+    function realKeys(keys) {
+      return (keys || []).filter(k => k && !String(k).startsWith('mod:'));
+    }
+
+    function buildPermTree(list, disabled) {
+      const byId = {};
+      list.forEach(p => {
+        byId[p.id] = {
+          key: p.code,
+          label: p.name,
+          code: p.code,
+          module: p.module,
+          virtual: false,
+          disabled,
+          children: []
+        };
+      });
+      const roots = {};
+      list.forEach(p => {
+        const node = byId[p.id];
+        if (p.parentId && byId[p.parentId]) {
+          byId[p.parentId].children.push(node);
+        } else {
+          (roots[p.module] || (roots[p.module] = [])).push(node);
+        }
+      });
+      const modules = [...MODULE_ORDER];
+      Object.keys(roots).forEach(m => { if (!modules.includes(m)) modules.push(m); });
+      return modules.filter(m => roots[m] && roots[m].length).map(m => {
+        const children = roots[m];
+        if (children.length === 1 && children[0].code === m) return children[0];
+        return {
+          key: 'mod:' + m,
+          label: MODULE_LABELS[m] || m,
+          virtual: true,
+          disabled,
+          children
+        };
+      });
+    }
+
+    function collectCodes(nodes) {
+      const codes = [];
+      (nodes || []).forEach(n => {
+        if (!n.virtual && n.code) codes.push(n.code);
+        codes.push(...collectCodes(n.children));
+      });
+      return codes;
+    }
+
+    async function load(keepId) {
+      loading.value = true;
+      try {
+        roles.value = await ImsAuth.api('/roles');
+        permissions.value = await ImsAuth.api('/permissions');
+        const id = keepId || current.value?.id || roles.value[0]?.id;
+        const next = roles.value.find(r => r.id === id) || roles.value[0] || null;
+        if (next) applyRole(next, true);
+        else current.value = null;
+      } catch (e) {
+        ElementPlus.ElMessage.error(e.message || '加载失败');
+      } finally {
+        loading.value = false;
+      }
+    }
+
+    function applyRole(row, force) {
+      current.value = row;
+      checked.value = [...(row.permissionCodes || [])];
+      snapshot.value = normalizeKeys(checked.value);
+      permFilter.value = '';
+      treeKey.value += 1;
+      nextTick(() => {
+        treeRef.value?.setCheckedKeys(checked.value);
+        if (force) treeRef.value?.filter('');
+      });
+    }
+
+    async function selectRole(row) {
+      if (current.value && current.value.id === row.id) return;
+      if (isDirty.value) {
+        try {
+          await ElementPlus.ElMessageBox.confirm('当前权限尚未保存，切换将丢失修改。', '未保存的更改', {
+            type: 'warning', confirmButtonText: '放弃并切换', cancelButtonText: '继续编辑'
+          });
+        } catch {
+          return;
+        }
+      }
+      applyRole(row);
+    }
+
+    function syncChecked() {
+      if (!treeRef.value) return;
+      checked.value = realKeys(treeRef.value.getCheckedKeys(false));
+    }
+    function onCheck() { syncChecked(); }
+
+    function filterPerm(value, data) {
+      if (!value) return true;
+      const q = value.toLowerCase();
+      return (data.label || '').toLowerCase().includes(q) || (data.code || '').toLowerCase().includes(q);
+    }
+
+    function walkNodes(fn) {
+      const store = treeRef.value?.store;
+      if (!store || !store._getAllNodes) return;
+      store._getAllNodes().forEach(fn);
+    }
+    function expandAll() { walkNodes(n => { n.expanded = true; }); }
+    function collapseAll() { walkNodes(n => { if (n.level > 1) n.expanded = false; }); }
+    function checkAll() {
+      treeRef.value?.setCheckedKeys(collectCodes(permTree.value));
+      syncChecked();
+    }
+    function uncheckAll() {
+      treeRef.value?.setCheckedKeys([]);
+      syncChecked();
+    }
+
     async function savePerms() {
-      await ImsAuth.api('/roles/'+current.value.id+'/permissions', { method:'PUT', body: JSON.stringify({ permissionCodes: checked.value }) });
-      ElementPlus.ElMessage.success('已保存'); load();
+      if (!current.value || !canWrite.value) return;
+      saving.value = true;
+      try {
+        syncChecked();
+        await ImsAuth.api('/roles/' + current.value.id + '/permissions', {
+          method: 'PUT',
+          body: JSON.stringify({ permissionCodes: checked.value })
+        });
+        ElementPlus.ElMessage.success('权限已保存');
+        await load(current.value.id);
+      } catch (e) {
+        ElementPlus.ElMessage.error(e.message || '保存失败');
+      } finally {
+        saving.value = false;
+      }
     }
+
+    function openCreate() {
+      resetCreate();
+      createDlg.value = true;
+    }
+    function resetCreate() {
+      newRole.code = '';
+      newRole.name = '';
+      newRole.description = '';
+      formRef.value?.clearValidate();
+    }
+
     async function createRole() {
-      await ImsAuth.api('/roles', { method:'POST', body: JSON.stringify(newRole.value) });
-      createDlg.value=false; load();
+      try {
+        await formRef.value.validate();
+      } catch {
+        return;
+      }
+      creating.value = true;
+      try {
+        const created = await ImsAuth.api('/roles', { method: 'POST', body: JSON.stringify({ ...newRole }) });
+        createDlg.value = false;
+        ElementPlus.ElMessage.success('角色已创建');
+        await load(created.id);
+      } catch (e) {
+        ElementPlus.ElMessage.error(e.message || '创建失败');
+      } finally {
+        creating.value = false;
+      }
     }
+
+    watch(permFilter, val => { treeRef.value?.filter(val); });
+
     onMounted(() => { if (ImsAuth.requireAuth()) load(); });
-    return { navHtml, roles, permissions, current, checked, createDlg, newRole, selectRole, savePerms, createRole };
+
+    return {
+      user, navHtml, canWrite, ImsAuth, loading, saving, creating, roles, permissions, current, checked,
+      createDlg, newRole, rules, formRef, treeRef, treeKey, roleKeyword, permFilter, permTree,
+      filteredRoles, builtinCount, checkedCount, isDirty, isBuiltin, permCount, permRatio,
+      selectRole, onCheck, filterPerm, expandAll, collapseAll, checkAll, uncheckAll,
+      savePerms, openCreate, resetCreate, createRole
+    };
   }
 }).use(ElementPlus).mount('#app');
 </script>

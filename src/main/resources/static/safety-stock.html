@@ -2,6 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>安全库存 - IMS</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
@@ -9,83 +10,506 @@
   <script src="https://unpkg.com/element-plus"></script>
   <script src="/js/auth.js"></script>
   <script src="/js/nav.js"></script>
+  <script>
+    tailwind.config = { theme: { extend: { colors: { brand: { 600: '#2563eb' } } } } }
+  </script>
 </head>
 <body class="bg-slate-50">
 <div id="app" class="flex min-h-screen">
   <aside class="w-64 bg-slate-900 text-white flex flex-col shrink-0">
     <div class="px-6 py-5 border-b border-slate-700"><h1 class="text-lg font-bold">IMS 库存管理</h1></div>
     <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto" v-html="navHtml"></nav>
+    <div class="px-6 py-4 border-t border-slate-700 text-xs text-slate-400">{{ user?.realName }}</div>
   </aside>
-  <main class="flex-1 p-8">
-    <div class="flex justify-between mb-4">
-      <h2 class="text-xl font-semibold">安全库存规则</h2>
+
+  <main class="flex-1 flex flex-col min-w-0">
+    <header class="bg-white border-b border-slate-200 px-8 py-4 flex items-center justify-between">
+      <div>
+        <h2 class="text-xl font-semibold text-slate-800">安全库存规则</h2>
+        <p class="text-sm text-slate-500 mt-0.5">按 SKU + 仓库设置上下限；仓库级规则覆盖全局规则，触发低库存 / 超储预警</p>
+      </div>
       <div class="flex gap-2">
-        <el-button @click="importDlg=true">导入 CSV</el-button>
-        <el-button type="primary" @click="dlg=true">新增规则</el-button>
+        <el-button v-if="canWrite" @click="openImport">导入 CSV</el-button>
+        <el-button v-if="canWrite" type="primary" @click="openCreate">新增规则</el-button>
+        <el-button @click="ImsAuth.logout()">退出</el-button>
+      </div>
+    </header>
+
+    <div class="flex-1 p-8 min-w-0 space-y-4">
+      <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+        <div class="flex flex-wrap gap-3 items-end">
+          <div class="flex-1 min-w-[180px]">
+            <label class="block text-xs text-slate-500 mb-1">SKU 关键字</label>
+            <el-input v-model="query.keyword" placeholder="编码 / 条码" clearable @keyup.enter="search"></el-input>
+          </div>
+          <div class="w-48">
+            <label class="block text-xs text-slate-500 mb-1">仓库</label>
+            <el-select v-model="query.warehouseId" placeholder="全部仓库" clearable filterable class="w-full">
+              <el-option :value="0" label="全局规则"></el-option>
+              <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id"></el-option>
+            </el-select>
+          </div>
+          <div class="w-36">
+            <label class="block text-xs text-slate-500 mb-1">状态</label>
+            <el-select v-model="query.enabled" placeholder="全部" clearable class="w-full">
+              <el-option label="启用" :value="1"></el-option>
+              <el-option label="停用" :value="0"></el-option>
+            </el-select>
+          </div>
+          <el-button type="primary" @click="search">查询</el-button>
+          <el-button @click="resetQuery">重置</el-button>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <el-table
+          :data="list"
+          v-loading="loading"
+          stripe
+          style="width: 100%"
+          :height="tableHeight"
+          :row-class-name="rowClass"
+          empty-text="暂无安全库存规则"
+        >
+          <el-table-column label="SKU" min-width="200" show-overflow-tooltip>
+            <template #default="{ row }">
+              <div class="font-medium text-slate-800 tracking-tight">{{ skuMeta(row).skuCode || '-' }}</div>
+              <div class="text-xs text-slate-400 mt-0.5">{{ skuMeta(row).spuName || '未关联商品' }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="规格" min-width="160">
+            <template #default="{ row }">
+              <div v-if="specEntries(skuMeta(row).specJson).length" class="spec-cell">
+                <el-tag
+                  v-for="item in specEntries(skuMeta(row).specJson)"
+                  :key="item.key"
+                  size="small"
+                  effect="plain"
+                  type="info"
+                >{{ item.label }}</el-tag>
+              </div>
+              <span v-else class="text-slate-400">-</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="适用范围" min-width="150">
+            <template #default="{ row }">
+              <el-tooltip v-if="isGlobal(row)" content="所有仓库的默认阈值，可被仓库级规则覆盖" placement="top">
+                <el-tag size="small" effect="plain">全局</el-tag>
+              </el-tooltip>
+              <span v-else class="text-slate-700">{{ warehouseName(row) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="下限" width="100" align="right">
+            <template #default="{ row }">
+              <span class="tabular-nums font-medium text-amber-700">{{ row.minQty == null ? '-' : row.minQty }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="上限" width="100" align="right">
+            <template #default="{ row }">
+              <span v-if="row.maxQty == null" class="text-slate-400">不限</span>
+              <span v-else class="tabular-nums font-medium text-blue-700">{{ row.maxQty }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" width="88" align="center">
+            <template #default="{ row }">
+              <el-tag :type="row.enabled === 1 ? 'success' : 'info'" size="small">
+                {{ row.enabled === 1 ? '启用' : '停用' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column v-if="canWrite" label="操作" width="148" fixed="right" align="center">
+            <template #default="{ row }">
+              <div class="op-cell">
+                <el-button link type="primary" @click="openEdit(row)">编辑</el-button>
+                <el-button
+                  link
+                  :type="row.enabled === 1 ? 'warning' : 'success'"
+                  @click="toggleEnabled(row)"
+                >{{ row.enabled === 1 ? '停用' : '启用' }}</el-button>
+              </div>
+            </template>
+          </el-table-column>
+        </el-table>
+        <div class="px-4 py-3 border-t border-slate-100 flex justify-end">
+          <el-pagination
+            v-model:current-page="page"
+            v-model:page-size="size"
+            :total="total"
+            :page-sizes="[10, 20, 50]"
+            background
+            layout="total, sizes, prev, pager, next"
+            @current-change="loadList"
+            @size-change="search"
+          ></el-pagination>
+        </div>
       </div>
     </div>
-    <el-table :data="list" stripe border>
-      <el-table-column prop="skuId" label="SKU ID" width="90" />
-      <el-table-column prop="warehouseId" label="仓库(0=全局)" width="120" />
-      <el-table-column prop="minQty" label="下限" width="80" />
-      <el-table-column prop="maxQty" label="上限" width="80" />
-      <el-table-column prop="enabled" label="启用" width="80" />
-      <el-table-column label="操作" width="120"><template #default="{ row }"><el-button size="small" @click="edit(row)">编辑</el-button></template></el-table-column>
-    </el-table>
-    <el-dialog v-model="dlg" title="安全库存规则" width="480px">
-      <el-form label-width="90px">
-        <el-form-item label="SKU"><el-select v-model="form.skuId" filterable class="w-full" :disabled="!!form.id"><el-option v-for="s in skus" :key="s.id" :label="s.skuCode" :value="s.id" /></el-select></el-form-item>
-        <el-form-item label="仓库"><el-select v-model="form.warehouseId" clearable class="w-full"><el-option :value="0" label="全局" /><el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" /></el-select></el-form-item>
-        <el-form-item label="下限"><el-input-number v-model="form.minQty" :min="0" /></el-form-item>
-        <el-form-item label="上限"><el-input-number v-model="form.maxQty" :min="0" /></el-form-item>
+
+    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑安全库存规则' : '新增安全库存规则'" width="520px" destroy-on-close>
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="96px">
+        <el-form-item label="SKU" prop="skuId">
+          <el-select
+            v-model="form.skuId"
+            filterable
+            remote
+            :remote-method="searchSkus"
+            :loading="skuLoading"
+            :disabled="isEdit"
+            placeholder="搜索 SKU 编码"
+            class="w-full"
+          >
+            <el-option
+              v-for="s in skuOptions"
+              :key="s.id"
+              :label="skuLabel(s)"
+              :value="s.id"
+            ></el-option>
+          </el-select>
+        </el-form-item>
+        <el-form-item label="仓库">
+          <el-select v-model="form.warehouseId" :disabled="isEdit" class="w-full" placeholder="选择仓库或全局">
+            <el-option :value="0" label="全局（所有仓库默认）"></el-option>
+            <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id"></el-option>
+          </el-select>
+          <p class="text-xs text-slate-400 mt-1">仓库级规则优先于全局规则；编辑时不可更改 SKU / 仓库</p>
+        </el-form-item>
+        <el-form-item label="下限" prop="minQty">
+          <el-input-number v-model="form.minQty" :min="0" :step="1" controls-position="right" class="w-full"></el-input-number>
+        </el-form-item>
+        <el-form-item label="上限" prop="maxQty">
+          <el-input-number v-model="form.maxQty" :min="0" :step="1" controls-position="right" class="w-full"></el-input-number>
+          <p class="text-xs text-slate-400 mt-1">留空表示不限制上限</p>
+        </el-form-item>
+        <el-form-item label="启用">
+          <el-switch v-model="form.enabled" :active-value="1" :inactive-value="0"></el-switch>
+        </el-form-item>
       </el-form>
-      <template #footer><el-button type="primary" @click="save">保存</el-button></template>
+      <template #footer>
+        <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="submitting" @click="submitForm">确定</el-button>
+      </template>
     </el-dialog>
-    <el-dialog v-model="importDlg" title="导入 CSV" width="520px">
-      <p class="text-sm text-slate-500 mb-2">格式：skuCode,warehouseId,minQty,maxQty （仓库空=全局）</p>
-      <input type="file" accept=".csv,text/csv" @change="onFile" />
-      <template #footer><el-button type="primary" @click="doImport">导入</el-button></template>
+
+    <el-dialog v-model="importDlg" title="导入安全库存规则" width="560px">
+      <p class="text-sm text-slate-500 mb-3">CSV 首行为表头，仓库 ID 留空或填 0 表示全局规则。</p>
+      <pre class="csv-sample">skuCode,warehouseId,minQty,maxQty
+TSHIRT-BLK-M,0,30,200
+TSHIRT-BLK-M,1,50,150
+CABLE-1M,1,80,200</pre>
+      <div class="mt-3 flex items-center gap-3">
+        <input type="file" accept=".csv,text/csv" @change="onFile">
+        <span class="text-sm text-slate-500" v-if="parsed.length">已解析 {{ parsed.length }} 条有效规则</span>
+        <span class="text-sm text-amber-600" v-else-if="importFileName">未解析到有效行，请核对 SKU 编码</span>
+      </div>
+      <template #footer>
+        <el-button @click="importDlg = false">取消</el-button>
+        <el-button type="primary" :loading="importing" :disabled="!parsed.length" @click="doImport">导入</el-button>
+      </template>
     </el-dialog>
   </main>
 </div>
-<style>.nav-link{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;font-size:14px;color:#cbd5e1}.nav-link.active{background:#2563eb;color:#fff}</style>
+<style>
+  .nav-link { display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:8px; font-size:14px; color:#cbd5e1; }
+  .nav-link:hover { background:#1e293b; color:#fff; }
+  .nav-link.active { background:#2563eb; color:#fff; font-weight:500; }
+  .el-table table { width:100% !important; border-collapse:separate !important; }
+  .el-table th.el-table__cell, .el-table td.el-table__cell { display:table-cell !important; }
+  .el-table .row-disabled td { color:#94a3b8; background:#f8fafc !important; }
+  .el-pagination { flex-wrap:wrap; }
+  .op-cell { display:flex; flex-wrap:nowrap; justify-content:center; gap:0 4px; }
+  .op-cell .el-button { margin-left:0; }
+  .spec-cell { display:flex; flex-wrap:wrap; gap:4px; }
+  .csv-sample { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:12px 14px; font-size:12px; color:#334155; line-height:1.6; overflow-x:auto; }
+  .el-input-number { width:100%; }
+</style>
 <script>
-const { createApp, ref, computed, onMounted } = Vue;
+const { createApp, ref, reactive, computed, onMounted } = Vue;
+const SPEC_KEYS = { color: '颜色', size: '尺码', waist: '腰围', length: '长度', flavor: '口味' };
+
 createApp({
   setup() {
+    const user = ref(ImsAuth.getUser());
     const navHtml = computed(() => ImsNav.render('safety-stock.html'));
-    const list = ref([]), skus = ref([]), warehouses = ref([]), dlg = ref(false), importDlg = ref(false), form = ref({ minQty:0, maxQty:0, warehouseId:0 });
-    let parsed = [];
-    async function load() { list.value = (await ImsAuth.api('/safety-stock-rules?page=0&size=100')).items; }
-    function edit(row) { form.value = { ...row }; dlg.value=true; }
-    async function save() {
-      if (form.value.id) await ImsAuth.api('/safety-stock-rules/'+form.value.id, { method:'PUT', body: JSON.stringify(form.value) });
-      else await ImsAuth.api('/safety-stock-rules', { method:'POST', body: JSON.stringify(form.value) });
-      dlg.value=false; load();
+    const canWrite = computed(() => ImsAuth.hasPermission('safety-stock:write'));
+    const tableHeight = computed(() => Math.max(360, window.innerHeight - 340));
+    const loading = ref(false);
+    const submitting = ref(false);
+    const importing = ref(false);
+    const skuLoading = ref(false);
+    const list = ref([]);
+    const warehouses = ref([]);
+    const skuOptions = ref([]);
+    const skuMap = ref({});
+    const total = ref(0);
+    const page = ref(1);
+    const size = ref(20);
+    const query = reactive({ keyword: '', warehouseId: null, enabled: null });
+    const dialogVisible = ref(false);
+    const importDlg = ref(false);
+    const isEdit = ref(false);
+    const editId = ref(null);
+    const formRef = ref(null);
+    const form = reactive({ skuId: null, warehouseId: 0, minQty: 0, maxQty: null, enabled: 1 });
+    const parsed = ref([]);
+    const importFileName = ref('');
+    const rules = {
+      skuId: [{ required: true, message: '请选择 SKU', trigger: 'change' }],
+      minQty: [{ required: true, message: '请输入下限', trigger: 'blur' }],
+      maxQty: [{
+        validator: (_r, v, cb) => {
+          if (v != null && form.minQty != null && v < form.minQty) cb(new Error('上限不能低于下限'));
+          else cb();
+        },
+        trigger: 'change'
+      }]
+    };
+
+    function isGlobal(row) {
+      return row.warehouseId == null || row.warehouseId === 0;
+    }
+    function skuMeta(row) {
+      const cached = skuMap.value[row.skuId] || {};
+      return {
+        skuCode: row.skuCode || cached.skuCode || '',
+        spuName: row.spuName || cached.spuName || '',
+        specJson: row.specJson || cached.specJson || null
+      };
+    }
+    function warehouseName(row) {
+      if (isGlobal(row)) return '全局';
+      if (row.warehouseName) return row.warehouseName;
+      const w = warehouses.value.find(x => x.id === row.warehouseId);
+      return w ? w.name : '-';
+    }
+    function rowClass({ row }) {
+      return row.enabled === 1 ? '' : 'row-disabled';
+    }
+    function parseSpec(spec) {
+      if (!spec) return null;
+      if (typeof spec === 'string') {
+        try { spec = JSON.parse(spec); } catch { return null; }
+      }
+      if (typeof spec !== 'object' || Array.isArray(spec)) return null;
+      return spec;
+    }
+    function specEntries(spec) {
+      const obj = parseSpec(spec);
+      if (!obj) return [];
+      return Object.entries(obj)
+        .filter(([k, v]) => k && v != null && String(v).length)
+        .map(([key, value]) => ({
+          key,
+          label: (SPEC_KEYS[key] || key) + ' ' + value
+        }));
+    }
+    function skuLabel(s) {
+      const spec = specEntries(s.specJson).map(i => i.label).join(' / ');
+      return [s.skuCode, s.spuName, spec].filter(Boolean).join(' · ');
+    }
+
+    async function searchSkus(keyword) {
+      skuLoading.value = true;
+      try {
+        const params = new URLSearchParams({ page: 0, size: 50, status: 1 });
+        if (keyword) params.set('keyword', keyword);
+        const data = await ImsAuth.api('/skus?' + params);
+        skuOptions.value = data.items || [];
+      } catch (e) {
+        ElementPlus.ElMessage.error(e.message);
+      } finally {
+        skuLoading.value = false;
+      }
+    }
+
+    async function loadList() {
+      loading.value = true;
+      try {
+        const params = new URLSearchParams({ page: page.value - 1, size: size.value });
+        if (query.keyword) params.set('keyword', query.keyword.trim());
+        if (query.warehouseId != null && query.warehouseId !== '') params.set('warehouseId', query.warehouseId);
+        if (query.enabled != null && query.enabled !== '') params.set('enabled', query.enabled);
+        const data = await ImsAuth.api('/safety-stock-rules?' + params);
+        list.value = data.items || [];
+        total.value = data.total || 0;
+      } catch (e) {
+        ElementPlus.ElMessage.error(e.message);
+      } finally {
+        loading.value = false;
+      }
+    }
+
+    function search() {
+      page.value = 1;
+      loadList();
+    }
+    function resetQuery() {
+      query.keyword = '';
+      query.warehouseId = null;
+      query.enabled = null;
+      search();
+    }
+    function resetForm() {
+      form.skuId = null;
+      form.warehouseId = 0;
+      form.minQty = 0;
+      form.maxQty = null;
+      form.enabled = 1;
+    }
+    function openCreate() {
+      isEdit.value = false;
+      editId.value = null;
+      resetForm();
+      searchSkus('');
+      dialogVisible.value = true;
+    }
+    function openEdit(row) {
+      isEdit.value = true;
+      editId.value = row.id;
+      form.skuId = row.skuId;
+      form.warehouseId = row.warehouseId == null ? 0 : row.warehouseId;
+      form.minQty = row.minQty;
+      form.maxQty = row.maxQty;
+      form.enabled = row.enabled == null ? 1 : row.enabled;
+      const meta = skuMeta(row);
+      skuOptions.value = [{
+        id: row.skuId,
+        skuCode: meta.skuCode,
+        spuName: meta.spuName,
+        specJson: meta.specJson
+      }];
+      dialogVisible.value = true;
+    }
+    async function submitForm() {
+      await formRef.value.validate();
+      submitting.value = true;
+      try {
+        const body = {
+          skuId: form.skuId,
+          warehouseId: form.warehouseId == null ? 0 : form.warehouseId,
+          minQty: form.minQty,
+          maxQty: form.maxQty,
+          enabled: form.enabled
+        };
+        if (isEdit.value) {
+          await ImsAuth.api('/safety-stock-rules/' + editId.value, { method: 'PUT', body: JSON.stringify(body) });
+          ElementPlus.ElMessage.success('更新成功');
+        } else {
+          await ImsAuth.api('/safety-stock-rules', { method: 'POST', body: JSON.stringify(body) });
+          ElementPlus.ElMessage.success('创建成功');
+        }
+        dialogVisible.value = false;
+        loadList();
+      } catch (e) {
+        ElementPlus.ElMessage.error(e.message);
+      } finally {
+        submitting.value = false;
+      }
+    }
+    async function toggleEnabled(row) {
+      const newEnabled = row.enabled === 1 ? 0 : 1;
+      const action = newEnabled === 0 ? '停用' : '启用';
+      try {
+        await ElementPlus.ElMessageBox.confirm(
+          `确定${action}「${skuMeta(row).skuCode || row.skuId}」的${isGlobal(row) ? '全局' : warehouseName(row)}规则？`,
+          '确认'
+        );
+        await ImsAuth.api('/safety-stock-rules/' + row.id, {
+          method: 'PUT',
+          body: JSON.stringify({
+            skuId: row.skuId,
+            warehouseId: row.warehouseId,
+            minQty: row.minQty,
+            maxQty: row.maxQty,
+            enabled: newEnabled
+          })
+        });
+        ElementPlus.ElMessage.success(action + '成功');
+        loadList();
+      } catch (e) {
+        if (e !== 'cancel') ElementPlus.ElMessage.error(e.message || e);
+      }
+    }
+    function openImport() {
+      parsed.value = [];
+      importFileName.value = '';
+      importDlg.value = true;
     }
     function onFile(e) {
-      const f = e.target.files[0]; if (!f) return;
+      const f = e.target.files[0];
+      if (!f) return;
+      importFileName.value = f.name;
       const reader = new FileReader();
-      reader.onload = () => {
-        parsed = String(reader.result).split(/\r?\n/).slice(1).filter(Boolean).map(line => {
+      reader.onload = async () => {
+        const rows = String(reader.result).split(/\r?\n/).slice(1).filter(Boolean).map(line => {
           const [skuCode, warehouseId, minQty, maxQty] = line.split(',');
-          const sku = skus.value.find(s => s.skuCode === skuCode.trim());
-          return sku ? { skuId: sku.id, warehouseId: warehouseId?Number(warehouseId):0, minQty: Number(minQty), maxQty: maxQty?Number(maxQty):null } : null;
-        }).filter(Boolean);
+          const code = (skuCode || '').trim();
+          if (!code) return null;
+          return {
+            skuCode: code,
+            warehouseId: warehouseId && warehouseId.trim() !== '' ? Number(warehouseId) : 0,
+            minQty: Number(minQty),
+            maxQty: maxQty && maxQty.trim() !== '' ? Number(maxQty) : null
+          };
+        }).filter(row => row && !Number.isNaN(row.minQty));
+        const codes = [...new Set(rows.map(r => r.skuCode))];
+        const found = {};
+        await Promise.all(codes.map(async code => {
+          try {
+            const data = await ImsAuth.api('/skus?keyword=' + encodeURIComponent(code) + '&page=0&size=20');
+            const sku = (data.items || []).find(s => s.skuCode === code);
+            if (sku) found[code] = sku.id;
+          } catch (_) { /* ignore lookup miss */ }
+        }));
+        parsed.value = rows.filter(r => found[r.skuCode]).map(r => ({ ...r, skuId: found[r.skuCode] }));
       };
       reader.readAsText(f);
+      e.target.value = '';
     }
     async function doImport() {
-      await ImsAuth.api('/safety-stock-rules/import', { method:'POST', body: JSON.stringify(parsed) });
-      importDlg.value=false; load();
+      if (!parsed.value.length) return;
+      importing.value = true;
+      try {
+        const items = parsed.value.map(({ skuId, warehouseId, minQty, maxQty }) => ({ skuId, warehouseId, minQty, maxQty }));
+        const n = await ImsAuth.api('/safety-stock-rules/import', { method: 'POST', body: JSON.stringify(items) });
+        importDlg.value = false;
+        ElementPlus.ElMessage.success('已导入 ' + n + ' 条');
+        loadList();
+      } catch (e) {
+        ElementPlus.ElMessage.error(e.message);
+      } finally {
+        importing.value = false;
+      }
     }
+
     onMounted(async () => {
       if (!ImsAuth.requireAuth()) return;
-      skus.value = (await ImsAuth.api('/skus?page=0&size=200')).items;
-      warehouses.value = (await ImsAuth.api('/warehouses?page=0&size=100')).items;
-      load();
+      user.value = ImsAuth.getUser();
+      try {
+        const [wh, skuData] = await Promise.all([
+          ImsAuth.api('/warehouses?page=0&size=100'),
+          ImsAuth.api('/skus?page=0&size=500')
+        ]);
+        warehouses.value = wh.items || [];
+        const items = skuData.items || [];
+        skuOptions.value = items;
+        const map = {};
+        items.forEach(s => { map[s.id] = s; });
+        skuMap.value = map;
+      } catch (e) {
+        ElementPlus.ElMessage.error(e.message);
+      }
+      loadList();
     });
-    return { navHtml, list, skus, warehouses, dlg, importDlg, form, edit, save, onFile, doImport };
+
+    return {
+      user, navHtml, canWrite, ImsAuth, tableHeight,
+      loading, submitting, importing, skuLoading,
+      list, warehouses, skuOptions, total, page, size, query,
+      dialogVisible, importDlg, isEdit, formRef, form, rules, parsed, importFileName,
+      isGlobal, skuMeta, warehouseName, rowClass, specEntries, skuLabel,
+      searchSkus, loadList, search, resetQuery, openCreate, openEdit, submitForm,
+      toggleEnabled, openImport, onFile, doImport
+    };
   }
 }).use(ElementPlus).mount('#app');
 </script>

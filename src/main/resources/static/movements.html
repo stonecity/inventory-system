@@ -2,6 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>出入库单据 - IMS</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
@@ -16,9 +17,12 @@
     <div class="px-6 py-5 border-b border-slate-700"><h1 class="text-lg font-bold">IMS 库存管理</h1></div>
     <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto" v-html="navHtml"></nav>
   </aside>
-  <main class="flex-1 p-8">
-    <div class="flex justify-between mb-4">
-      <h2 class="text-xl font-semibold">出入库单据</h2>
+  <main class="flex-1 flex flex-col min-w-0">
+    <header class="bg-white border-b border-slate-200 px-8 py-4 flex items-center justify-between">
+      <div>
+        <h2 class="text-xl font-semibold text-slate-800">出入库单据</h2>
+        <p class="text-sm text-slate-500 mt-0.5">按类型、状态、仓库筛选单据，并按状态执行流转操作</p>
+      </div>
       <el-dropdown @command="openCreate">
         <el-button type="primary">新建单据</el-button>
         <template #dropdown>
@@ -33,42 +37,109 @@
           </el-dropdown-menu>
         </template>
       </el-dropdown>
-    </div>
-    <div class="bg-white rounded-xl border p-4 mb-4 flex gap-3 flex-wrap">
-      <el-select v-model="query.type" placeholder="类型" clearable style="width:140px">
-        <el-option v-for="t in types" :key="t.v" :label="t.l" :value="t.v" />
-      </el-select>
-      <el-select v-model="query.status" placeholder="状态" clearable style="width:150px">
-        <el-option v-for="s in statuses" :key="s" :label="s" :value="s" />
-      </el-select>
-      <el-button type="primary" @click="load">查询</el-button>
-    </div>
-    <el-table :data="list" v-loading="loading" stripe border>
-      <el-table-column prop="movementNo" label="单号" width="180" />
-      <el-table-column prop="type" label="类型" width="130" />
-      <el-table-column prop="status" label="状态" width="150" />
-      <el-table-column prop="totalQty" label="数量" width="80" />
-      <el-table-column prop="warehouseId" label="仓库" width="80" />
-      <el-table-column label="操作" min-width="360">
-        <template #default="{ row }">
-          <el-button size="small" @click="showDetail(row)">详情</el-button>
-          <el-button size="small" v-if="['DRAFT','REJECTED','RESERVE_FAILED'].includes(row.status)" @click="doSubmit(row)">提交</el-button>
-          <el-button size="small" v-if="['PENDING_APPROVAL','RESERVED'].includes(row.status)" @click="doApprove(row)">审核</el-button>
-          <el-button size="small" v-if="['PENDING_APPROVAL','RESERVED'].includes(row.status)" @click="doReject(row)">驳回</el-button>
-          <el-button size="small" v-if="row.status==='APPROVED' && ['PURCHASE_IN','SALE_RETURN','OTHER_IN'].includes(row.type)" @click="doReceive(row)">验货入库</el-button>
-          <el-button size="small" v-if="row.status==='APPROVED' && row.type==='SALE_OUT'" @click="doPick(row)">拣货</el-button>
-          <el-button size="small" v-if="row.status==='PICKING'" @click="doShip(row)">确认出库</el-button>
-          <el-button size="small" v-if="row.status==='APPROVED' && ['PURCHASE_RETURN','OTHER_OUT'].includes(row.type)" @click="doShip(row)">确认出库</el-button>
-          <el-button size="small" v-if="row.status==='APPROVED' && row.type==='TRANSFER'" @click="doTransferOut(row)">调出</el-button>
-          <el-button size="small" v-if="row.status==='IN_TRANSIT'" @click="doTransferIn(row)">调入</el-button>
-          <el-button size="small" v-if="row.status==='SHIPPED' && row.type==='SALE_OUT'" @click="openReturn(row,'SALE_RETURN')">退货</el-button>
-          <el-button size="small" v-if="row.status==='COMPLETED' && row.type==='PURCHASE_IN'" @click="openReturn(row,'PURCHASE_RETURN')">退货</el-button>
-          <el-button size="small" v-if="!['SHIPPED','COMPLETED','CANCELLED','PARTIALLY_COMPLETED'].includes(row.status)" @click="doCancel(row)">取消</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+    </header>
 
-    <el-dialog v-model="dlgVisible" :title="'新建 ' + createType" width="720px">
+    <div class="flex-1 p-8 min-w-0">
+      <div class="bg-white rounded-xl border border-slate-200 p-4 mb-4 shadow-sm">
+        <div class="flex flex-wrap gap-3 items-end">
+          <div class="w-40">
+            <label class="block text-xs text-slate-500 mb-1">类型</label>
+            <el-select v-model="query.type" placeholder="全部类型" clearable class="w-full">
+              <el-option v-for="t in types" :key="t.v" :label="t.l" :value="t.v" />
+            </el-select>
+          </div>
+          <div class="w-44">
+            <label class="block text-xs text-slate-500 mb-1">状态</label>
+            <el-select v-model="query.status" placeholder="全部状态" clearable class="w-full">
+              <el-option v-for="s in statuses" :key="s.v" :label="s.l" :value="s.v" />
+            </el-select>
+          </div>
+          <div class="w-48">
+            <label class="block text-xs text-slate-500 mb-1">仓库</label>
+            <el-select v-model="query.warehouseId" placeholder="全部仓库" clearable filterable class="w-full">
+              <el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" />
+            </el-select>
+          </div>
+          <el-button type="primary" @click="search">查询</el-button>
+          <el-button @click="resetQuery">重置</el-button>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <el-table
+          :data="list"
+          v-loading="loading"
+          stripe
+          style="width: 100%"
+          :height="tableHeight"
+          empty-text="暂无出入库单据"
+        >
+          <el-table-column prop="movementNo" label="单号" min-width="170" show-overflow-tooltip>
+            <template #default="{ row }">
+              <div class="font-medium text-slate-800">{{ row.movementNo || '-' }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="类型" width="110" align="center">
+            <template #default="{ row }">
+              <el-tag :type="typeTag(row.type)" size="small">{{ typeLabel(row.type) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" width="118" align="center">
+            <template #default="{ row }">
+              <el-tag :type="statusTag(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="totalQty" label="数量" width="80" align="right">
+            <template #default="{ row }">{{ row.totalQty == null ? '-' : row.totalQty }}</template>
+          </el-table-column>
+          <el-table-column label="仓库" min-width="160" show-overflow-tooltip>
+            <template #default="{ row }">
+              <span v-if="row.type === 'TRANSFER'">{{ warehouseName(row.warehouseId) }} → {{ warehouseName(row.toWarehouseId) }}</span>
+              <span v-else>{{ warehouseName(row.warehouseId) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="往来单位" min-width="120" show-overflow-tooltip>
+            <template #default="{ row }">{{ partnerName(row) }}</template>
+          </el-table-column>
+          <el-table-column label="创建时间" width="170">
+            <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
+          </el-table-column>
+          <el-table-column label="操作" min-width="240" fixed="right" align="right">
+            <template #default="{ row }">
+              <div class="op-cell">
+                <el-button link type="primary" @click="showDetail(row)">详情</el-button>
+                <el-button link type="primary" v-if="['DRAFT','REJECTED','RESERVE_FAILED'].includes(row.status)" @click="doSubmit(row)">提交</el-button>
+                <el-button link type="success" v-if="['PENDING_APPROVAL','RESERVED'].includes(row.status)" @click="doApprove(row)">审核</el-button>
+                <el-button link type="warning" v-if="['PENDING_APPROVAL','RESERVED'].includes(row.status)" @click="doReject(row)">驳回</el-button>
+                <el-button link type="primary" v-if="row.status==='APPROVED' && ['PURCHASE_IN','SALE_RETURN','OTHER_IN'].includes(row.type)" @click="doReceive(row)">验货入库</el-button>
+                <el-button link type="primary" v-if="row.status==='APPROVED' && row.type==='SALE_OUT'" @click="doPick(row)">拣货</el-button>
+                <el-button link type="primary" v-if="row.status==='PICKING'" @click="doShip(row)">确认出库</el-button>
+                <el-button link type="primary" v-if="row.status==='APPROVED' && ['PURCHASE_RETURN','OTHER_OUT'].includes(row.type)" @click="doShip(row)">确认出库</el-button>
+                <el-button link type="primary" v-if="row.status==='APPROVED' && row.type==='TRANSFER'" @click="doTransferOut(row)">调出</el-button>
+                <el-button link type="primary" v-if="row.status==='IN_TRANSIT'" @click="doTransferIn(row)">调入</el-button>
+                <el-button link type="warning" v-if="row.status==='SHIPPED' && row.type==='SALE_OUT'" @click="openReturn(row,'SALE_RETURN')">退货</el-button>
+                <el-button link type="warning" v-if="row.status==='COMPLETED' && row.type==='PURCHASE_IN'" @click="openReturn(row,'PURCHASE_RETURN')">退货</el-button>
+                <el-button link type="danger" v-if="!['SHIPPED','COMPLETED','CANCELLED','PARTIALLY_COMPLETED'].includes(row.status)" @click="doCancel(row)">取消</el-button>
+              </div>
+            </template>
+          </el-table-column>
+        </el-table>
+        <div class="px-4 py-3 border-t border-slate-100 flex justify-end">
+          <el-pagination
+            v-model:current-page="page"
+            v-model:page-size="size"
+            :total="total"
+            :page-sizes="[10, 20, 50, 100]"
+            background
+            layout="total, sizes, prev, pager, next, jumper"
+            @current-change="load"
+            @size-change="search"
+          />
+        </div>
+      </div>
+    </div>
+
+    <el-dialog v-model="dlgVisible" :title="'新建 ' + typeLabel(createType)" width="720px">
       <el-form label-width="100px">
         <el-form-item label="源仓库">
           <el-select v-model="form.warehouseId" filterable class="w-full"><el-option v-for="w in warehouses" :key="w.id" :label="w.name" :value="w.id" /></el-select>
@@ -101,8 +172,16 @@
 
     <el-drawer v-model="detailVisible" title="单据详情" size="640px">
       <div v-if="detail">
-        <p class="mb-2">单号 {{ detail.movementNo }} / {{ detail.type }} / {{ detail.status }}</p>
-        <el-table :data="detail.items" border size="small">
+        <div class="mb-4 text-sm text-slate-600 space-y-1">
+          <p><span class="text-slate-400">单号</span> {{ detail.movementNo }}</p>
+          <p>
+            <el-tag :type="typeTag(detail.type)" size="small">{{ typeLabel(detail.type) }}</el-tag>
+            <el-tag class="ml-2" :type="statusTag(detail.status)" size="small">{{ statusLabel(detail.status) }}</el-tag>
+          </p>
+          <p><span class="text-slate-400">仓库</span> {{ warehouseName(detail.warehouseId) }}<span v-if="detail.toWarehouseId"> → {{ warehouseName(detail.toWarehouseId) }}</span></p>
+          <p v-if="partnerName(detail) !== '-'"><span class="text-slate-400">往来单位</span> {{ partnerName(detail) }}</p>
+        </div>
+        <el-table :data="detail.items" border size="small" style="width: 100%">
           <el-table-column prop="skuCode" label="SKU" />
           <el-table-column prop="plannedQty" label="计划" width="70" />
           <el-table-column prop="actualQty" label="实际" width="70" />
@@ -111,7 +190,7 @@
         <div class="mt-4 flex gap-2">
           <el-button @click="printDoc">打印</el-button>
         </div>
-        <el-table class="mt-4" :data="detailLogs" size="small" border>
+        <el-table class="mt-4" :data="detailLogs" size="small" border style="width: 100%">
           <el-table-column prop="changeType" label="类型" width="110" />
           <el-table-column prop="deltaQty" label="变动" width="70" />
           <el-table-column prop="operatedAt" label="时间" />
@@ -120,7 +199,15 @@
     </el-drawer>
   </main>
 </div>
-<style>.nav-link{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;font-size:14px;color:#cbd5e1}.nav-link.active{background:#2563eb;color:#fff}</style>
+<style>
+.nav-link{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:8px;font-size:14px;color:#cbd5e1}
+.nav-link.active{background:#2563eb;color:#fff}
+.el-table table{width:100% !important;border-collapse:separate !important}
+.el-table th.el-table__cell,.el-table td.el-table__cell{display:table-cell !important}
+.el-pagination{flex-wrap:wrap}
+.op-cell{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:0 4px}
+.op-cell .el-button{margin-left:0}
+</style>
 <script>
 const { createApp, ref, computed, onMounted } = Vue;
 const EP = {
@@ -128,28 +215,88 @@ const EP = {
   SALE_RETURN:'/movements/sale-return', PURCHASE_RETURN:'/movements/purchase-return',
   OTHER_IN:'/movements/other-in', OTHER_OUT:'/movements/other-out'
 };
+const TYPE_MAP = {
+  PURCHASE_IN: { l: '采购入库', tag: 'success' },
+  SALE_OUT: { l: '销售出库', tag: 'danger' },
+  TRANSFER: { l: '调拨', tag: 'warning' },
+  SALE_RETURN: { l: '销售退货', tag: '' },
+  PURCHASE_RETURN: { l: '采购退货', tag: 'warning' },
+  OTHER_IN: { l: '其他入库', tag: 'success' },
+  OTHER_OUT: { l: '其他出库', tag: 'danger' },
+  ADJUST: { l: '盘点调整', tag: 'info' }
+};
+const STATUS_MAP = {
+  DRAFT: { l: '草稿', tag: 'info' },
+  PENDING_APPROVAL: { l: '待审核', tag: 'warning' },
+  RESERVED: { l: '已预留', tag: 'warning' },
+  RESERVE_FAILED: { l: '预留失败', tag: 'danger' },
+  APPROVED: { l: '已审核', tag: '' },
+  RECEIVING: { l: '验货中', tag: '' },
+  PICKING: { l: '拣货中', tag: '' },
+  IN_TRANSIT: { l: '在途', tag: 'warning' },
+  SHIPPED: { l: '已出库', tag: 'success' },
+  COMPLETED: { l: '已完成', tag: 'success' },
+  PARTIALLY_COMPLETED: { l: '部分完成', tag: 'warning' },
+  CANCELLED: { l: '已取消', tag: 'info' },
+  REJECTED: { l: '已驳回', tag: 'danger' }
+};
 createApp({
   setup() {
     const navHtml = computed(() => ImsNav.render('movements.html'));
+    const tableHeight = computed(() => Math.max(360, window.innerHeight - 340));
     const list = ref([]), loading = ref(false), saving = ref(false);
-    const query = ref({});
+    const total = ref(0), page = ref(1), size = ref(20);
+    const query = ref({ type: null, status: null, warehouseId: null });
     const warehouses = ref([]), skus = ref([]), suppliers = ref([]), customers = ref([]);
     const dlgVisible = ref(false), createType = ref('PURCHASE_IN');
     const form = ref({ warehouseId:null, toWarehouseId:null, partnerId:null, refMovementId:null, items:[{ skuId:null, plannedQty:1 }] });
     const detailVisible = ref(false), detail = ref(null), detailLogs = ref([]);
-    const types = [
-      {v:'PURCHASE_IN',l:'采购入库'},{v:'SALE_OUT',l:'销售出库'},{v:'TRANSFER',l:'调拨'},
-      {v:'SALE_RETURN',l:'销售退货'},{v:'PURCHASE_RETURN',l:'采购退货'},{v:'OTHER_IN',l:'其他入库'},{v:'OTHER_OUT',l:'其他出库'},{v:'ADJUST',l:'盘点调整'}
-    ];
-    const statuses = ['DRAFT','PENDING_APPROVAL','RESERVED','RESERVE_FAILED','APPROVED','RECEIVING','PICKING','IN_TRANSIT','SHIPPED','COMPLETED','CANCELLED','REJECTED'];
+    const types = Object.keys(TYPE_MAP).map(v => ({ v, l: TYPE_MAP[v].l }));
+    const statuses = Object.keys(STATUS_MAP).map(v => ({ v, l: STATUS_MAP[v].l }));
+    function typeLabel(v) { return (TYPE_MAP[v] && TYPE_MAP[v].l) || v || '-'; }
+    function typeTag(v) { return (TYPE_MAP[v] && TYPE_MAP[v].tag) || 'info'; }
+    function statusLabel(v) { return (STATUS_MAP[v] && STATUS_MAP[v].l) || v || '-'; }
+    function statusTag(v) { return (STATUS_MAP[v] && STATUS_MAP[v].tag) || 'info'; }
+    function warehouseName(id) {
+      if (!id) return '-';
+      const w = warehouses.value.find(x => x.id === id);
+      return w ? w.name : String(id);
+    }
+    function partnerName(row) {
+      if (!row || !row.partnerId) return '-';
+      const src = row.partnerType === 'CUSTOMER' ? customers.value : suppliers.value;
+      const p = src.find(x => x.id === row.partnerId);
+      return p ? p.name : '-';
+    }
+    function formatTime(v) {
+      if (v == null || v === '') return '-';
+      const d = typeof v === 'number' ? new Date(v > 1e12 ? v : v * 1000) : new Date(v);
+      if (Number.isNaN(d.getTime())) return String(v);
+      const pad = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    }
     async function load() {
       loading.value = true;
       try {
-        const q = new URLSearchParams({ page:0, size:50 });
+        const q = new URLSearchParams({ page: page.value - 1, size: size.value });
         if (query.value.type) q.set('type', query.value.type);
         if (query.value.status) q.set('status', query.value.status);
-        list.value = (await ImsAuth.api('/movements?' + q)).items;
+        if (query.value.warehouseId) q.set('warehouseId', query.value.warehouseId);
+        const data = await ImsAuth.api('/movements?' + q);
+        list.value = data.items || [];
+        total.value = data.total || 0;
+      } catch (e) {
+        ElementPlus.ElMessage.error(e.message);
       } finally { loading.value = false; }
+    }
+    function search() {
+      page.value = 1;
+      load();
+    }
+    function resetQuery() {
+      query.value = { type: null, status: null, warehouseId: null };
+      page.value = 1;
+      load();
     }
     function openCreate(type) {
       createType.value = type;
@@ -230,9 +377,10 @@ createApp({
       const id = new URLSearchParams(location.search).get('id');
       if (id) showDetail({ id });
     });
-    return { navHtml, list, loading, query, warehouses, skus, suppliers, customers, types, statuses,
+    return { navHtml, tableHeight, list, loading, total, page, size, query, warehouses, skus, suppliers, customers, types, statuses,
       dlgVisible, createType, form, saving, detailVisible, detail, detailLogs,
-      load, openCreate, openReturn, saveCreate, doSubmit, doApprove, doReject, doReceive, doPick, doShip,
+      typeLabel, typeTag, statusLabel, statusTag, warehouseName, partnerName, formatTime,
+      load, search, resetQuery, openCreate, openReturn, saveCreate, doSubmit, doApprove, doReject, doReceive, doPick, doShip,
       doTransferOut, doTransferIn, doCancel, showDetail, printDoc };
   }
 }).use(ElementPlus).mount('#app');

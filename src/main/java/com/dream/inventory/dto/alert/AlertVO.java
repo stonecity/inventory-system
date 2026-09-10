@@ -15,6 +15,7 @@ public class AlertVO {
     private Long skuId;
     private String skuCode;
     private Long warehouseId;
+    private String warehouseName;
     private AlertType alertType;
     private Integer currentQty;
     private Integer threshold;
