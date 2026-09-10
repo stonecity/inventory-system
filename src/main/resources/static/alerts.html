@@ -278,7 +278,7 @@ createApp({
         });
         genDlg.value = false;
         ElementPlus.ElMessage.success('已生成采购草稿');
-        location.href = 'movements.html';
+        ImsNav.openPage('movements.html');
       } catch (e) {
         ElementPlus.ElMessage.error(e.message);
       } finally {

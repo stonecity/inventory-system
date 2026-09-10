@@ -502,11 +502,11 @@ createApp({
     }
 
     function goProducts() {
-      location.href = 'products.html';
+      ImsNav.openPage('products.html');
     }
 
     function goSkus(row) {
-      location.href = 'skus.html?spuId=' + row.id;
+      ImsNav.openPage('skus.html?spuId=' + row.id);
     }
 
     function formatTime(v) {

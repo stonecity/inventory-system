@@ -36,10 +36,20 @@ window.ImsAuth = (function () {
     return getPermissions().includes(code);
   }
 
+  function navigateTop(url) {
+    try {
+      if (window.top && window.top !== window.self) {
+        window.top.location.href = url;
+        return;
+      }
+    } catch (e) { /* ignore */ }
+    location.href = url;
+  }
+
   function requireAuth() {
     if (!getToken()) {
-      const redirect = encodeURIComponent(location.pathname + location.search);
-      location.href = '/login.html?redirect=' + redirect;
+      const redirect = encodeURIComponent('/index.html');
+      navigateTop('/login.html?redirect=' + redirect);
       return false;
     }
     return true;
@@ -56,7 +66,8 @@ window.ImsAuth = (function () {
 
     if (json.code === 40100) {
       clearSession();
-      location.href = '/login.html?redirect=' + encodeURIComponent(location.pathname);
+      try { sessionStorage.removeItem('ims_open_tabs'); } catch (e) { /* ignore */ }
+      navigateTop('/login.html?redirect=' + encodeURIComponent('/index.html'));
       throw new Error('请重新登录');
     }
     if (json.code === 40300) {
@@ -78,7 +89,8 @@ window.ImsAuth = (function () {
     const res = await fetch(API + url, { headers });
     if (res.status === 401) {
       clearSession();
-      location.href = '/login.html';
+      try { sessionStorage.removeItem('ims_open_tabs'); } catch (e) { /* ignore */ }
+      navigateTop('/login.html');
       throw new Error('请重新登录');
     }
     if (!res.ok) {
@@ -99,7 +111,8 @@ window.ImsAuth = (function () {
       await api('/auth/logout', { method: 'POST' });
     } catch (e) { /* ignore */ }
     clearSession();
-    location.href = '/login.html';
+    try { sessionStorage.removeItem('ims_open_tabs'); } catch (e) { /* ignore */ }
+    navigateTop('/login.html');
   }
 
   return {

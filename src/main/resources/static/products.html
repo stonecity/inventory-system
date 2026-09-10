@@ -281,7 +281,7 @@ createApp({
     }
 
     function goSkus(row) {
-      location.href = 'skus.html?spuId=' + row.id;
+      ImsNav.openPage('skus.html?spuId=' + row.id);
     }
 
     onMounted(async () => {
