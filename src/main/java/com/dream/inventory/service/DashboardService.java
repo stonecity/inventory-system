@@ -86,8 +86,9 @@ public class DashboardService {
             list.add(TopSkuVO.builder()
                     .skuId(((Number) row[0]).longValue())
                     .skuCode(String.valueOf(row[1]))
-                    .onHandQty(((Number) row[2]).intValue())
-                    .amount(row[3] == null ? BigDecimal.ZERO : new BigDecimal(row[3].toString()))
+                    .skuName(row[2] == null ? null : String.valueOf(row[2]))
+                    .onHandQty(((Number) row[3]).intValue())
+                    .amount(row[4] == null ? BigDecimal.ZERO : new BigDecimal(row[4].toString()))
                     .build());
         }
         return list;

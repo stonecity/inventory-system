@@ -15,6 +15,7 @@ public class TopSkuVO {
 
     private Long skuId;
     private String skuCode;
+    private String skuName;
     private int onHandQty;
     private BigDecimal amount;
 }

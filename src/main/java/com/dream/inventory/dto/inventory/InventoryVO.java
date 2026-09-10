@@ -12,9 +12,12 @@ public class InventoryVO {
     private Long id;
     private Long skuId;
     private String skuCode;
+    private String barcode;
+    private String spuName;
     private Long warehouseId;
     private String warehouseName;
     private Long locationId;
+    private String locationCode;
     private Integer onHandQty;
     private Integer reservedQty;
     private Integer availableQty;

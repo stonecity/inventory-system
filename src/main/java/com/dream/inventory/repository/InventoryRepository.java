@@ -158,10 +158,12 @@ public interface InventoryRepository extends JpaRepository<Inventory, Long> {
     BigDecimal sumOnHandAmount();
 
     @Query(value = """
-            SELECT i.sku_id, s.sku_code, SUM(i.on_hand_qty), SUM(i.on_hand_qty * s.cost_price)
+            SELECT i.sku_id, s.sku_code, p.name,
+                   SUM(i.on_hand_qty), SUM(i.on_hand_qty * s.cost_price)
               FROM inventory i
               JOIN product_sku s ON s.id = i.sku_id
-             GROUP BY i.sku_id, s.sku_code
+              JOIN product p ON p.id = s.spu_id
+             GROUP BY i.sku_id, s.sku_code, p.name
              ORDER BY SUM(i.on_hand_qty * s.cost_price) DESC
              LIMIT :limit
             """, nativeQuery = true)

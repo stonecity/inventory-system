@@ -34,20 +34,39 @@
         <div class="stat-card"><div class="stat-label">待审核单据</div><div class="stat-value text-amber-600">{{ summary.pendingApprovalCount ?? '-' }}</div></div>
         <div class="stat-card"><div class="stat-label">开放预警</div><div class="stat-value text-red-600">{{ summary.openAlertCount ?? '-' }}</div></div>
       </div>
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div class="bg-white border rounded-xl p-4 lg:col-span-2">
+      <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+        <div class="bg-white border rounded-xl p-4 lg:col-span-3">
           <h3 class="font-semibold mb-3">近 30 天出入库趋势</h3>
-          <div ref="trendEl" style="height:280px"></div>
+          <div ref="trendEl" style="height:360px"></div>
         </div>
-        <div class="bg-white border rounded-xl p-4">
-          <h3 class="font-semibold mb-3">库存金额 Top 10</h3>
-          <el-table :data="topSkus" size="small" height="280">
-            <el-table-column prop="skuCode" label="SKU" />
-            <el-table-column prop="onHandQty" label="在库" width="70" />
-            <el-table-column label="金额" width="90">
-              <template #default="{ row }">{{ formatAmount(row.amount) }}</template>
-            </el-table-column>
-          </el-table>
+        <div class="bg-white border rounded-xl p-4 lg:col-span-2 flex flex-col min-w-0">
+          <div class="flex items-baseline justify-between mb-3 gap-2">
+            <h3 class="font-semibold">库存金额 Top 10</h3>
+            <span class="text-xs text-slate-400 shrink-0">按成本金额</span>
+          </div>
+          <div v-if="!topSkus.length" class="flex-1 flex items-center justify-center text-sm text-slate-400" style="min-height:360px">
+            暂无库存数据
+          </div>
+          <div v-else class="top-sku-list">
+            <div v-for="(row, i) in topSkus" :key="row.skuId" class="top-sku-row" :title="row.skuCode">
+              <span class="rank" :class="rankClass(i)">{{ i + 1 }}</span>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-baseline justify-between gap-3">
+                  <span class="truncate text-sm min-w-0 flex-1">
+                    <span class="font-medium text-slate-800">{{ row.skuName || row.skuCode }}</span>
+                    <span v-if="row.skuName" class="text-xs text-slate-400 ml-1.5">{{ row.skuCode }}</span>
+                  </span>
+                  <span class="tabular-nums text-sm font-semibold text-slate-800 shrink-0">{{ formatAmount(row.amount) }}</span>
+                </div>
+                <div class="flex items-center gap-2 mt-1.5">
+                  <div class="bar-track">
+                    <div class="bar-fill" :class="'bar-' + (i + 1)" :style="{ width: barWidth(row) }"></div>
+                  </div>
+                  <span class="text-[11px] text-slate-400 shrink-0 tabular-nums">{{ row.onHandQty }} 件<span v-if="shareText(row)"> · {{ shareText(row) }}</span></span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -60,6 +79,22 @@
   .stat-card { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:20px; }
   .stat-label { font-size:.875rem; color:#64748b; }
   .stat-value { font-size:1.75rem; font-weight:700; color:#1e293b; margin-top:8px; }
+  .top-sku-list { display:flex; flex-direction:column; gap:2px; }
+  .top-sku-row { display:flex; align-items:flex-start; gap:10px; padding:7px 6px; border-radius:8px; }
+  .top-sku-row:hover { background:#f8fafc; }
+  .rank {
+    width:22px; height:22px; border-radius:6px; flex-shrink:0; margin-top:1px;
+    display:flex; align-items:center; justify-content:center;
+    font-size:12px; font-weight:700; background:#f1f5f9; color:#64748b;
+  }
+  .rank.gold { background:#fef3c7; color:#b45309; }
+  .rank.silver { background:#e2e8f0; color:#475569; }
+  .rank.bronze { background:#ffedd5; color:#c2410c; }
+  .bar-track { flex:1; height:5px; background:#f1f5f9; border-radius:999px; overflow:hidden; min-width:0; }
+  .bar-fill { height:100%; border-radius:999px; background:linear-gradient(90deg,#93c5fd,#2563eb); }
+  .bar-fill.bar-1 { background:linear-gradient(90deg,#fbbf24,#d97706); }
+  .bar-fill.bar-2 { background:linear-gradient(90deg,#94a3b8,#64748b); }
+  .bar-fill.bar-3 { background:linear-gradient(90deg,#fdba74,#ea580c); }
 </style>
 <script>
 const { createApp, ref, onMounted, computed } = Vue;
@@ -73,6 +108,21 @@ createApp({
     function formatAmount(v) {
       if (v == null) return '-';
       return Number(v).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    function rankClass(i) {
+      return i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : '';
+    }
+    function barWidth(row) {
+      const max = Number(topSkus.value[0] && topSkus.value[0].amount);
+      const val = Number(row.amount);
+      if (!max || max <= 0 || !val || val <= 0) return '0%';
+      return Math.max(4, (val / max) * 100) + '%';
+    }
+    function shareText(row) {
+      const total = Number(summary.value.inventoryAmount);
+      const val = Number(row.amount);
+      if (!total || total <= 0 || !val) return '';
+      return (val / total * 100).toFixed(1) + '%';
     }
     onMounted(async () => {
       if (!ImsAuth.requireAuth()) return;
@@ -96,7 +146,7 @@ createApp({
         ElementPlus.ElMessage.error(e.message);
       }
     });
-    return { user, summary, topSkus, trendEl, navHtml, ImsAuth, formatAmount };
+    return { user, summary, topSkus, trendEl, navHtml, ImsAuth, formatAmount, rankClass, barWidth, shareText };
   }
 }).use(ElementPlus).mount('#app');
 </script>

@@ -14,6 +14,7 @@ public class InventoryLogVO {
     private Long skuId;
     private String skuCode;
     private Long warehouseId;
+    private String warehouseName;
     private Long locationId;
     private InventoryChangeType changeType;
     private Integer deltaQty;
