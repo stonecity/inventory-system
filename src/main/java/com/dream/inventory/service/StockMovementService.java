@@ -11,6 +11,7 @@ import com.dream.inventory.entity.enums.*;
 import com.dream.inventory.repository.*;
 import com.dream.inventory.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
+import org.hibernate.Hibernate;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -43,14 +44,20 @@ public class StockMovementService {
     private final CustomerRepository customerRepository;
     private final StockAlertRepository alertRepository;
 
+    @Transactional(readOnly = true)
     public PageResult<MovementVO> list(MovementType type, MovementStatus status, Long warehouseId,
                                        Long partnerId, Instant from, Instant to, int page, int size) {
         PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<StockMovement> result = movementRepository.search(type, status, warehouseId, partnerId, from, to, pageable);
-        return PageResult.of(result.getContent().stream().map(this::toVO).toList(),
+        Map<Long, List<StockMovementItem>> itemsByMovement = loadItemsByMovementIds(
+                result.getContent().stream().map(StockMovement::getId).toList());
+        return PageResult.of(result.getContent().stream()
+                        .map(m -> toVO(m, itemsByMovement.getOrDefault(m.getId(), List.of())))
+                        .toList(),
                 result.getTotalElements(), page, size);
     }
 
+    @Transactional(readOnly = true)
     public MovementVO getById(Long id) {
         return toVO(findOrThrow(id));
     }
@@ -160,6 +167,7 @@ public class StockMovementService {
         return toVO(movementRepository.save(m));
     }
 
+    @Transactional(readOnly = true)
     public PrintMovementVO print(Long id) {
         StockMovement m = findOrThrow(id);
         String warehouseName = warehouseRepository.findById(m.getWarehouseId())
@@ -653,8 +661,30 @@ public class StockMovementService {
         });
     }
 
+    private Map<Long, List<StockMovementItem>> loadItemsByMovementIds(List<Long> movementIds) {
+        if (movementIds == null || movementIds.isEmpty()) {
+            return Map.of();
+        }
+        return movementItemRepository.findByMovementIdInOrderByIdAsc(movementIds).stream()
+                .collect(Collectors.groupingBy(item -> item.getMovement().getId()));
+    }
+
+    private List<StockMovementItem> resolveItems(StockMovement m) {
+        if (m.getItems() != null && Hibernate.isInitialized(m.getItems())) {
+            return m.getItems();
+        }
+        if (m.getId() == null) {
+            return m.getItems() != null ? m.getItems() : List.of();
+        }
+        return movementItemRepository.findByMovementIdOrderByIdAsc(m.getId());
+    }
+
     private MovementVO toVO(StockMovement m) {
-        List<MovementItemVO> items = m.getItems().stream().map(item -> {
+        return toVO(m, resolveItems(m));
+    }
+
+    private MovementVO toVO(StockMovement m, List<StockMovementItem> itemEntities) {
+        List<MovementItemVO> items = itemEntities.stream().map(item -> {
             String skuCode = skuRepository.findById(item.getSkuId())
                     .map(ProductSku::getSkuCode).orElse("");
             return MovementItemVO.builder()
