@@ -44,6 +44,7 @@ inventory_system/
 ├── docs/
 │   ├── CONTEXT.md      # 架构铁律与开发约定
 │   ├── PRD.md          # 完整需求规格（状态机、API、错误码）
+│   ├── DOCKER.md       # Docker 打包部署完整操作流程
 │   └── schema.sql      # 目标库 DDL（生产 / Docker 首次初始化）
 ├── src/main/java/com/dream/inventory/
 │   ├── common/         # Result、PageResult、错误码、全局异常
@@ -66,6 +67,8 @@ inventory_system/
 
 ### Docker 部署
 
+完整打包、端口、验收与排障见 [docs/DOCKER.md](docs/DOCKER.md)。
+
 需要本机已安装 [Docker Desktop](https://docs.docker.com/desktop/)（含 Docker Compose）。
 
 ```bash
@@ -79,7 +82,7 @@ docker compose up -d --build
 | 项 | 地址 / 说明 |
 |---|---|
 | 应用 | http://localhost:8080/login.html |
-| MySQL | `localhost:3306`，库名 `inventory_system` |
+| MySQL | `localhost:3307`，库名 `inventory_system` |
 | 默认账号 | `admin` / `admin123` |
 
 首次启动会用 `docs/schema.sql` 建库建表（含 CHECK 约束与角色权限种子），应用以 `docker` profile 连接容器内 MySQL，`ddl-auto=validate`。管理员账号仍由应用启动时的 `DataInitializer` 写入。
@@ -101,7 +104,7 @@ docker compose exec -T mysql mysql -uims -pims123456 inventory_system < docs/see
 docker compose up -d --build
 ```
 
-生产环境请修改 `.env` 中的 `MYSQL_ROOT_PASSWORD`、`MYSQL_PASSWORD`、`IMS_JWT_SECRET`。MySQL 默认只绑定本机 `127.0.0.1:3306`。国内构建若拉取 Maven 依赖较慢，可在 `Dockerfile` 中取消注释阿里云镜像那一行。
+生产环境请修改 `.env` 中的 `MYSQL_ROOT_PASSWORD`、`MYSQL_PASSWORD`、`IMS_JWT_SECRET`。MySQL 默认只绑定本机 `127.0.0.1:3307`。国内构建若拉取 Maven 依赖较慢，可在 `Dockerfile` 中取消注释阿里云镜像那一行。
 
 ### 环境要求（本地运行）
 
