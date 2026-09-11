@@ -6,10 +6,8 @@ services:
     container_name: ims-mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-123456}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-inventory_system}
-      MYSQL_USER: ${MYSQL_USER:-ims}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-ims123456}
       TZ: UTC
     command:
       - --character-set-server=utf8mb4
@@ -19,6 +17,7 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
       - ./docs/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./docs/seed-test-data.sql:/docker-entrypoint-initdb.d/02-seed.sql:ro
     ports:
       - "127.0.0.1:${MYSQL_PORT:-3306}:3306"
     healthcheck:
@@ -44,9 +43,9 @@ services:
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
       MYSQL_DATABASE: ${MYSQL_DATABASE:-inventory_system}
-      MYSQL_USER: ${MYSQL_USER:-ims}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-ims123456}
-      JPA_DDL_AUTO: ${JPA_DDL_AUTO:-validate}
+      MYSQL_USER: ${MYSQL_USER:-root}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-123456}
+      JPA_DDL_AUTO: ${JPA_DDL_AUTO:-update}
       IMS_JWT_SECRET: ${IMS_JWT_SECRET:-ims-dev-secret-key-change-in-production-min-256-bits-long!!}
       IMS_JWT_EXPIRATION_MS: ${IMS_JWT_EXPIRATION_MS:-86400000}
       JAVA_OPTS: ${JAVA_OPTS:--XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0}
