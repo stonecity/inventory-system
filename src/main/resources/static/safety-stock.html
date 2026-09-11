@@ -193,9 +193,9 @@
     <el-dialog v-model="importDlg" title="导入安全库存规则" width="560px">
       <p class="text-sm text-slate-500 mb-3">CSV 首行为表头，仓库 ID 留空或填 0 表示全局规则。</p>
       <pre class="csv-sample">skuCode,warehouseId,minQty,maxQty
-TSHIRT-BLK-M,0,30,200
-TSHIRT-BLK-M,1,50,150
-CABLE-1M,1,80,200</pre>
+BAG-XL,0,20,150
+BAG-XL,1,40,120
+PEN-BLK,1,50,200</pre>
       <div class="mt-3 flex items-center gap-3">
         <input type="file" accept=".csv,text/csv" @change="onFile">
         <span class="text-sm text-slate-500" v-if="parsed.length">已解析 {{ parsed.length }} 条有效规则</span>
