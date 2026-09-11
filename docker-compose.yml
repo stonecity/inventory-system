@@ -1,0 +1,57 @@
+name: ims
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: ims-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-inventory_system}
+      MYSQL_USER: ${MYSQL_USER:-ims}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-ims123456}
+      TZ: UTC
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+00:00
+      - --transaction-isolation=READ-COMMITTED
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./docs/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    ports:
+      - "127.0.0.1:${MYSQL_PORT:-3306}:3306"
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ims-app:0.0.1
+    container_name: ims-app
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      TZ: UTC
+      SPRING_PROFILES_ACTIVE: docker
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-inventory_system}
+      MYSQL_USER: ${MYSQL_USER:-ims}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-ims123456}
+      JPA_DDL_AUTO: ${JPA_DDL_AUTO:-validate}
+      IMS_JWT_SECRET: ${IMS_JWT_SECRET:-ims-dev-secret-key-change-in-production-min-256-bits-long!!}
+      IMS_JWT_EXPIRATION_MS: ${IMS_JWT_EXPIRATION_MS:-86400000}
+      JAVA_OPTS: ${JAVA_OPTS:--XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0}
+    ports:
+      - "${APP_PORT:-8080}:8080"
+
+volumes:
+  mysql_data:

@@ -1,0 +1,26 @@
+spring:
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:mysql}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:inventory_system}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true&characterEncoding=utf8
+    username: ${MYSQL_USER:ims}
+    password: ${MYSQL_PASSWORD:ims123456}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      initialization-fail-timeout: 60000
+      connection-timeout: 30000
+      maximum-pool-size: 10
+  jpa:
+    hibernate:
+      ddl-auto: ${JPA_DDL_AUTO:validate}
+    show-sql: false
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+
+server:
+  port: 8080
+
+ims:
+  jwt:
+    secret: ${IMS_JWT_SECRET:ims-dev-secret-key-change-in-production-min-256-bits-long!!}
+    expiration-ms: ${IMS_JWT_EXPIRATION_MS:86400000}

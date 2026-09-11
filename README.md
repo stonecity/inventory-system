@@ -36,10 +36,15 @@
 
 ```
 inventory_system/
+├── Dockerfile
+├── docker-compose.yml
+├── .env.example
+├── docker/
+│   └── maven-settings.xml   # 可选：国内 Maven 镜像
 ├── docs/
 │   ├── CONTEXT.md      # 架构铁律与开发约定
 │   ├── PRD.md          # 完整需求规格（状态机、API、错误码）
-│   └── schema.sql      # 目标库 DDL（生产环境使用）
+│   └── schema.sql      # 目标库 DDL（生产 / Docker 首次初始化）
 ├── src/main/java/com/dream/inventory/
 │   ├── common/         # Result、PageResult、错误码、全局异常
 │   ├── config/         # Security、CORS、数据初始化
@@ -52,13 +57,53 @@ inventory_system/
 │   └── service/        # 业务逻辑
 ├── src/main/resources/
 │   ├── application.yml
+│   ├── application-docker.yml
 │   └── static/         # 前端页面（login、index、categories、skus、warehouses）
 └── pom.xml
 ```
 
 ## 快速开始
 
-### 环境要求
+### Docker 部署
+
+需要本机已安装 [Docker Desktop](https://docs.docker.com/desktop/)（含 Docker Compose）。
+
+```bash
+# 可选：复制环境变量并修改数据库口令、JWT Secret
+# Windows: copy .env.example .env
+# Linux / macOS: cp .env.example .env
+
+docker compose up -d --build
+```
+
+| 项 | 地址 / 说明 |
+|---|---|
+| 应用 | http://localhost:8080/login.html |
+| MySQL | `localhost:3306`，库名 `inventory_system` |
+| 默认账号 | `admin` / `admin123` |
+
+首次启动会用 `docs/schema.sql` 建库建表（含 CHECK 约束与角色权限种子），应用以 `docker` profile 连接容器内 MySQL，`ddl-auto=validate`。管理员账号仍由应用启动时的 `DataInitializer` 写入。
+
+常用命令：
+
+```bash
+docker compose logs -f app
+docker compose ps
+docker compose down          # 停服务，保留数据卷
+docker compose down -v       # 停服务并清空 MySQL 数据（会重新执行 schema.sql）
+```
+
+导入测试数据：请在**应用首次启动前**对空库执行，或先 `docker compose down -v` 后只启动 MySQL 再导入，否则会与自动创建的 `admin` 冲突。口令需与 `.env` 一致；测试账号密码均为 `123456`。
+
+```bash
+docker compose up -d mysql
+docker compose exec -T mysql mysql -uims -pims123456 inventory_system < docs/seed-test-data.sql
+docker compose up -d --build
+```
+
+生产环境请修改 `.env` 中的 `MYSQL_ROOT_PASSWORD`、`MYSQL_PASSWORD`、`IMS_JWT_SECRET`。MySQL 默认只绑定本机 `127.0.0.1:3306`。国内构建若拉取 Maven 依赖较慢，可在 `Dockerfile` 中取消注释阿里云镜像那一行。
+
+### 环境要求（本地运行）
 
 - JDK 17+
 - Maven 3.8+
