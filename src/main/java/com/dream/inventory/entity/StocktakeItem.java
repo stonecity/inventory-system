@@ -2,6 +2,8 @@ package com.dream.inventory.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 
@@ -41,6 +43,7 @@ public class StocktakeItem {
     @Column(name = "diff_reason", length = 255)
     private String diffReason;
 
+    @JdbcTypeCode(SqlTypes.TINYINT)
     @Column(nullable = false)
     @Builder.Default
     private Integer excluded = 0;

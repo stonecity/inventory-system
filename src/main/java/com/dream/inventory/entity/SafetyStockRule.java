@@ -2,6 +2,8 @@ package com.dream.inventory.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 
@@ -31,6 +33,7 @@ public class SafetyStockRule {
     @Column(name = "max_qty")
     private Integer maxQty;
 
+    @JdbcTypeCode(SqlTypes.TINYINT)
     @Column(nullable = false)
     @Builder.Default
     private Integer enabled = 1;

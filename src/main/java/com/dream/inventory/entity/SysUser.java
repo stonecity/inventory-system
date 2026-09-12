@@ -2,6 +2,8 @@ package com.dream.inventory.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.HashSet;
@@ -35,6 +37,7 @@ public class SysUser {
     @Column(length = 100)
     private String email;
 
+    @JdbcTypeCode(SqlTypes.TINYINT)
     @Column(nullable = false)
     private Integer status;
 

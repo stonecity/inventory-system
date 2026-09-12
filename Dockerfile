@@ -1,18 +1,22 @@
-# syntax=docker/dockerfile:1
 # IMS 应用镜像：多阶段构建，运行时仅保留 JRE + fat jar
+# 不使用 # syntax=docker/dockerfile:1，避免构建时再拉 docker/dockerfile 前端镜像
+#
+# 国内拉不到 Docker Hub 时，构建参数 DOCKER_HUB=docker.m.daocloud.io/library
 
-FROM maven:3.9-eclipse-temurin-17 AS build
+ARG DOCKER_HUB=docker.io/library
+FROM ${DOCKER_HUB}/maven:3.9-eclipse-temurin-17 AS build
 WORKDIR /build
 
-# 国内网络构建较慢时可取消下一行，改走阿里云 Maven 镜像（见 docker/maven-settings.xml）
-# COPY docker/maven-settings.xml /root/.m2/settings.xml
+# 走阿里云 Maven 镜像，避免国内拉取中央仓库超时
+COPY docker/maven-settings.xml /root/.m2/settings.xml
 COPY pom.xml .
 COPY src ./src
 
 RUN mvn -B -DskipTests package \
     && cp target/inventory-0.0.1-SNAPSHOT.jar /build/app.jar
 
-FROM eclipse-temurin:17-jre-jammy
+ARG DOCKER_HUB=docker.io/library
+FROM ${DOCKER_HUB}/eclipse-temurin:17-jre-jammy
 WORKDIR /app
 
 RUN apt-get update \

@@ -26,7 +26,7 @@
 
 本地库：`inventory_system`，时区 UTC。配置见 `src/main/resources/application.yml`。
 
-Docker 部署：仓库根目录 `Dockerfile` + `docker-compose.yml`，`docker` profile 见 `application-docker.yml`。MySQL 首次启动执行 `docs/schema.sql`，应用 `ddl-auto` 默认 `validate`。密钥与库口令只走环境变量 / `.env`，不要写进镜像。
+Docker 部署：仓库根目录 `Dockerfile` + `docker-compose.yml`，`docker` profile 见 `application-docker.yml`。MySQL 首次启动执行 `docs/schema.sql` + `docs/seed-test-data.sql`，应用 `ddl-auto` 默认 `validate`。密钥与库口令只走环境变量 / `.env`，不要写进镜像。国内拉不到 Docker Hub 时用 `DOCKER_HUB=docker.m.daocloud.io/library`。
 
 ---
 

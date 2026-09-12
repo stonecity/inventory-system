@@ -2,6 +2,8 @@ package com.dream.inventory.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 
@@ -33,6 +35,7 @@ public class Customer {
     @Column(length = 200)
     private String address;
 
+    @JdbcTypeCode(SqlTypes.TINYINT)
     @Column(nullable = false)
     private Integer status;
 

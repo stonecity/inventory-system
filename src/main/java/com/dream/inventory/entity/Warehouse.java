@@ -3,6 +3,8 @@ package com.dream.inventory.entity;
 import com.dream.inventory.entity.enums.WarehouseType;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 
@@ -35,6 +37,7 @@ public class Warehouse {
     @Column(name = "manager_user_id")
     private Long managerUserId;
 
+    @JdbcTypeCode(SqlTypes.TINYINT)
     @Column(nullable = false)
     private Integer status;
 

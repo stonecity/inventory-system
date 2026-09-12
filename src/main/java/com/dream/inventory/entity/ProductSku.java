@@ -44,6 +44,7 @@ public class ProductSku {
     @Column(name = "default_safety_stock", nullable = false)
     private Integer defaultSafetyStock;
 
+    @JdbcTypeCode(SqlTypes.TINYINT)
     @Column(nullable = false)
     private Integer status;
 

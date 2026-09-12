@@ -2,6 +2,8 @@ package com.dream.inventory.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 
@@ -44,6 +46,7 @@ public class Inventory {
     @Builder.Default
     private Integer inTransitQty = 0;
 
+    @JdbcTypeCode(SqlTypes.TINYINT)
     @Column(nullable = false)
     @Builder.Default
     private Integer locked = 0;

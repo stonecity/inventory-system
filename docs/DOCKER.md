@@ -45,6 +45,7 @@ MySQL 只绑定本机回环：`127.0.0.1:3307`，局域网其它机器默认连�
 - 已安装 [Docker Desktop](https://docs.docker.com/desktop/)（含 Docker Compose v2）
 - 磁盘预留约 2 GB（Maven 构建层 + MySQL 镜像）
 - 本机 **3307、8080** 未被占用（可在 `.env` 改）
+- 拉不到 Docker Hub 时，在 `.env` 设置 `DOCKER_HUB=docker.m.daocloud.io/library`（DaoCloud 公共镜像）
 
 检查：
 
@@ -69,16 +70,19 @@ copy .env.example .env
 cp .env.example .env
 ```
 
-编辑 `.env`，Docker 部署建议至少确认下面几项（与当前 `docker-compose.yml` 一致：MySQL 容器只自动创建 **root**）：
+编辑 `.env`，Docker 部署建议至少确认下面几项（与当前 `docker-compose.yml` 一致：MySQL 会创建业务用户 `MYSQL_USER`）：
 
 ```env
 MYSQL_ROOT_PASSWORD=请改成强密码
 MYSQL_DATABASE=inventory_system
-MYSQL_USER=root
-MYSQL_PASSWORD=与 MYSQL_ROOT_PASSWORD 相同
+MYSQL_USER=ims
+MYSQL_PASSWORD=请改成业务用户密码
 MYSQL_PORT=3307
 
 APP_PORT=8080
+
+# 拉不到 Docker Hub 时使用 DaoCloud 公共镜像（compose 默认已是该值）
+DOCKER_HUB=docker.m.daocloud.io/library
 
 IMS_JWT_SECRET=请改成至少32字符的随机串
 IMS_JWT_EXPIRATION_MS=86400000
@@ -89,7 +93,7 @@ JPA_DDL_AUTO=validate
 
 注意：
 
-- `.env.example` 里的 `MYSQL_USER=ims` **不能直接用于当前 Compose**：mysql 服务没有创建 `ims` 用户。Docker 部署请用 `root`，或自行在 mysql 服务中增加 `MYSQL_USER` / `MYSQL_PASSWORD`。
+- `MYSQL_USER` 不能是 `root`（官方 MySQL 镜像限制）。应用走 `ims`，root 仅用于运维。
 - `IMS_JWT_SECRET` 生产环境必须替换；长度不足会导致 JWT 无法签发。
 - 改端口只改 `.env` 的 `MYSQL_PORT` / `APP_PORT`，然后执行第 7 节「重建端口映射」。
 
@@ -117,13 +121,7 @@ docker compose up -d --build
 4. 等 MySQL healthcheck 通过后启动 `ims-app`
 5. 应用使用 Spring profile `docker`，连接主机名 `mysql`、端口 `3306`
 
-首次构建会下载 Maven 依赖，可能需要数分钟。国内网络较慢时，打开 `Dockerfile`，取消这一行注释：
-
-```dockerfile
-COPY docker/maven-settings.xml /root/.m2/settings.xml
-```
-
-然后重新 `--build`。
+首次构建会下载 Maven 依赖，可能需要数分钟。`Dockerfile` 已默认使用阿里云 Maven 镜像（`docker/maven-settings.xml`）。
 
 ### 4.2 查看状态
 
@@ -322,10 +320,10 @@ docker compose exec -T mysql mysqldump -uroot -p你的ROOT密码 --databases inv
 | 现象 | 可能原因 | 处理 |
 |---|---|---|
 | `Bind for 0.0.0.0:8080 failed` / `3307` 占用 | 本机端口冲突 | 改 `.env` 的 `APP_PORT` / `MYSQL_PORT` 后 `--force-recreate` |
-| 应用一直 `Communications link failure` | MySQL 未就绪或账号不对 | `docker compose ps` 看 mysql 是否 healthy；确认 `MYSQL_USER=root` 且密码与 root 一致 |
+| 应用一直 `Communications link failure` | MySQL 未就绪或账号不对 | `docker compose ps` 看 mysql 是否 healthy；确认 `.env` 的 `MYSQL_USER` / `MYSQL_PASSWORD` 与 compose 一致 |
 | 登录页 200，登录失败 | 数据未初始化或口令被 seed 覆盖 | 看 `DataInitializer` / seed；必要时 `down -v` 后重来 |
 | 改了代码容器没变 | 未重新构建镜像 | `docker compose up -d --build app` |
-| 首次 Maven 极慢 / 失败 | 依赖拉取超时 | 启用 `Dockerfile` 中阿里云 `maven-settings.xml` |
+| 首次 Maven 极慢 / 失败 | 依赖拉取超时 | 确认 `Dockerfile` 已 COPY `docker/maven-settings.xml`（阿里云镜像） |
 | 宿主机 `3306` 连不上 Docker 库 | 映射已改为 3307 | 客户端改连 `127.0.0.1:3307` |
 | `schema.sql` 改了但库结构没变 | 初始化脚本只在空卷执行一次 | 开发环境可 `down -v`；生产应走迁移，不要依赖 init 脚本改已有库 |
 
