@@ -1,5 +1,6 @@
 package com.dream.inventory.service;
 
+import com.dream.inventory.common.TimeZones;
 import com.dream.inventory.entity.SysDocSequence;
 import com.dream.inventory.repository.SysDocSequenceRepository;
 import lombok.RequiredArgsConstructor;
@@ -7,7 +8,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 
 @Service
@@ -20,7 +20,7 @@ public class DocSequenceService {
 
     @Transactional(rollbackFor = Exception.class)
     public String nextNo(String prefix) {
-        LocalDate bizDate = LocalDate.now(ZoneOffset.UTC);
+        LocalDate bizDate = LocalDate.now(TimeZones.ZONE);
         SysDocSequence seq = docSequenceRepository.findForUpdate(prefix, bizDate)
                 .orElseGet(() -> docSequenceRepository.save(SysDocSequence.builder()
                         .prefix(prefix)

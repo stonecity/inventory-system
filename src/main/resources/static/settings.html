@@ -304,9 +304,7 @@ createApp({
 
     const seqExample = computed(() => {
       const w = Number(form['doc.seq.width']) || 6;
-      const d = new Date();
-      const pad = n => String(n).padStart(2, '0');
-      const ymd = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
+      const ymd = ImsTime.todayYmd().replace(/-/g, '');
       return `PI${ymd}${String(1).padStart(Math.max(1, Math.min(10, w)), '0')}`;
     });
 
@@ -388,11 +386,7 @@ createApp({
     function actionTag(a) { return (ACTION_MAP[a] && ACTION_MAP[a].tag) || 'info'; }
     function resourceLabel(t) { return RESOURCE_MAP[t] || t || '-'; }
     function formatTime(v) {
-      if (v == null || v === '') return '-';
-      const d = typeof v === 'number' ? new Date(v > 1e12 ? v : v * 1000) : new Date(v);
-      if (Number.isNaN(d.getTime())) return String(v);
-      const pad = n => String(n).padStart(2, '0');
-      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+      return ImsTime.format(v);
     }
     function formatDetail(d) {
       if (d == null || d === '') return '-';
@@ -421,8 +415,8 @@ createApp({
         if (auditQuery.action) q.set('action', auditQuery.action);
         if (auditQuery.userId) q.set('userId', auditQuery.userId);
         if (auditQuery.range && auditQuery.range.length === 2) {
-          q.set('from', new Date(auditQuery.range[0] + 'T00:00:00').toISOString());
-          q.set('to', new Date(auditQuery.range[1] + 'T23:59:59.999').toISOString());
+          q.set('from', ImsTime.dayStartIso(auditQuery.range[0]));
+          q.set('to', ImsTime.dayEndIso(auditQuery.range[1]));
         }
         const data = await ImsAuth.api('/audit-logs?' + q);
         audits.value = (data && data.items) || [];

@@ -24,7 +24,7 @@
 USE inventory_system;
 
 SET NAMES utf8mb4;
-SET time_zone = '+00:00';
+SET time_zone = '+08:00';
 SET FOREIGN_KEY_CHECKS = 0;
 
 -- 可重复导入：清掉业务数据，保留 schema 种子（角色/权限/参数）

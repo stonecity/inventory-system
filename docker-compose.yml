@@ -10,11 +10,11 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-inventory_system}
       MYSQL_USER: ${MYSQL_USER:-ims}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-ims123456}
-      TZ: UTC
+      TZ: Asia/Shanghai
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
-      - --default-time-zone=+00:00
+      - --default-time-zone=+08:00
       - --transaction-isolation=READ-COMMITTED
     volumes:
       - mysql_data:/var/lib/mysql
@@ -42,7 +42,7 @@ services:
       mysql:
         condition: service_healthy
     environment:
-      TZ: UTC
+      TZ: Asia/Shanghai
       SPRING_PROFILES_ACTIVE: docker
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306

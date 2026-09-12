@@ -120,3 +120,61 @@ window.ImsAuth = (function () {
     hasPermission, requireAuth, api, download, logout
   };
 })();
+
+window.ImsTime = (function () {
+  const ZONE = 'Asia/Shanghai';
+
+  function toDate(v) {
+    if (v == null || v === '') return null;
+    const d = typeof v === 'number' ? new Date(v > 1e12 ? v : v * 1000) : new Date(v);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  function format(v, withSeconds) {
+    const d = toDate(v);
+    if (!d) return v == null || v === '' ? '-' : String(v);
+    const opts = {
+      timeZone: ZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23'
+    };
+    if (withSeconds !== false) {
+      opts.second = '2-digit';
+    }
+    return new Intl.DateTimeFormat('sv-SE', opts).format(d).replace('T', ' ');
+  }
+
+  function todayYmd() {
+    return new Intl.DateTimeFormat('sv-SE', {
+      timeZone: ZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(new Date());
+  }
+
+  function addDaysYmd(ymd, days) {
+    const d = new Date(ymd + 'T12:00:00+08:00');
+    d.setTime(d.getTime() + days * 86400000);
+    return new Intl.DateTimeFormat('sv-SE', {
+      timeZone: ZONE,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(d);
+  }
+
+  function dayStartIso(ymd) {
+    return new Date(ymd + 'T00:00:00+08:00').toISOString();
+  }
+
+  function dayEndIso(ymd) {
+    return new Date(ymd + 'T23:59:59.999+08:00').toISOString();
+  }
+
+  return { ZONE, format, todayYmd, addDaysYmd, dayStartIso, dayEndIso };
+})();

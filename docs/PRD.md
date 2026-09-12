@@ -556,7 +556,7 @@ flowchart LR
 | 仓库停用 | 需库存全部为 0 且无未完成单据 |
 | 删除单据 | 只允许 `DRAFT` 状态物理删除；其余状态只能 `CANCELLED` |
 | 库存数据修复 | 禁止直接改表；提供"库存调整单"`ADJUST`，须超级管理员审批并填写原因 |
-| 时区 | 数据库统一 UTC，前端按浏览器时区展示 |
+| 时区 | 统一北京时间 Asia/Shanghai（UTC+8）；库内 TIMESTAMP 按 +08:00 会话读写与展示 |
 | 事务边界 | Service 方法级 `@Transactional`；Controller 不开事务；异步预警检查在事务提交后通过 `TransactionSynchronization.afterCommit` 触发 |
 
 ---

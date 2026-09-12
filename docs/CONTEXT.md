@@ -24,7 +24,7 @@
 | 前端 | 单文件 HTML + Vue 3 (CDN) + Element Plus (CDN) | 仅放 `src/main/resources/static/` |
 | 迁移 | 开发可用 `ddl-auto: update`；生产必须 `validate` + Flyway/Liquibase | CHECK 约束 Hibernate 无法可靠自动生成 |
 
-本地库：`inventory_system`，时区 UTC。配置见 `src/main/resources/application.yml`。
+本地库：`inventory_system`，时区 Asia/Shanghai（北京时间 UTC+8）。配置见 `src/main/resources/application.yml`。
 
 Docker 部署：仓库根目录 `Dockerfile` + `docker-compose.yml`，`docker` profile 见 `application-docker.yml`。MySQL 首次启动执行 `docs/schema.sql` + `docs/seed-test-data.sql`，应用 `ddl-auto` 默认 `validate`。密钥与库口令只走环境变量 / `.env`，不要写进镜像。国内拉不到 Docker Hub 时用 `DOCKER_HUB=docker.m.daocloud.io/library`。
 
@@ -128,7 +128,7 @@ available_qty = on_hand_qty - reserved_qty
 - 写操作（审核、入库确认、出库确认、盘点生效）请求体必须带单据 `version`，用 `WHERE id=? AND status=? AND version=?` 防重复提交，0 行 → `40900 STATE_CONFLICT`。
 - 创建类接口可接受可选 `Idempotency-Key`（24h 去重）。
 - 前端：单文件 HTML，Vue 3 + Element Plus CDN；提交按钮防重复点击；列表分页 `page, size, sort`。
-- 时间：库内 UTC，前端按浏览器时区展示。
+- 时间：统一北京时间（`Asia/Shanghai`，UTC+8）。库会话、JDBC、Hibernate、JVM、Jackson 均使用该时区；前端按北京时间展示与筛选。
 
 ---
 

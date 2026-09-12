@@ -30,7 +30,7 @@ RUN chown ims:ims /app/app.jar
 
 USER ims
 
-ENV TZ=UTC \
+ENV TZ=Asia/Shanghai \
     JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0" \
     SPRING_PROFILES_ACTIVE=docker
 

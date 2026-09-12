@@ -96,6 +96,7 @@ JPA_DDL_AUTO=validate
 - `MYSQL_USER` 不能是 `root`（官方 MySQL 镜像限制）。应用走 `ims`，root 仅用于运维。
 - `IMS_JWT_SECRET` 生产环境必须替换；长度不足会导致 JWT 无法签发。
 - 改端口只改 `.env` 的 `MYSQL_PORT` / `APP_PORT`，然后执行第 7 节「重建端口映射」。
+- 容器时区为北京时间：`TZ=Asia/Shanghai`，MySQL `--default-time-zone=+08:00`。已有数据卷只需重建容器，不必删卷。
 
 ---
 

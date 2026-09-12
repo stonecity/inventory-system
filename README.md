@@ -135,7 +135,7 @@ mysql -u root -p < docs/schema.sql
 ```yaml
 spring:
   datasource:
-    url: jdbc:mysql://localhost:3306/inventory_system?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://localhost:3306/inventory_system?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: root
     password: your_password
 ```

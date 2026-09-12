@@ -1,6 +1,6 @@
 -- =============================================================================
 -- IMS 目标库 DDL  (PRD v1.0 / CONTEXT)
--- 引擎 InnoDB / 字符集 utf8mb4 / 时区约定 UTC
+-- 引擎 InnoDB / 字符集 utf8mb4 / 时区约定 Asia/Shanghai (UTC+8)
 -- MySQL 8.0.16+（CHECK 约束生效）
 --
 -- 使用：
@@ -16,7 +16,7 @@ CREATE DATABASE IF NOT EXISTS inventory_system
 USE inventory_system;
 
 SET NAMES utf8mb4;
-SET time_zone = '+00:00';
+SET time_zone = '+08:00';
 
 -- ---------------------------------------------------------------------------
 -- 0. 清理（仅开发环境可整库重建时使用；生产请注释掉）
@@ -556,7 +556,7 @@ CREATE TABLE sys_setting (
 
 CREATE TABLE sys_doc_sequence (
   prefix      VARCHAR(8) NOT NULL COMMENT 'PI/SO/SR/PR/TF/AJ/OI/OO/ST',
-  biz_date    DATE       NOT NULL COMMENT '业务日 yyyy-MM-dd（UTC）',
+  biz_date    DATE       NOT NULL COMMENT '业务日 yyyy-MM-dd（北京时间）',
   current_seq INT        NOT NULL DEFAULT 0,
   PRIMARY KEY (prefix, biz_date),
   CONSTRAINT chk_doc_seq CHECK (current_seq >= 0)

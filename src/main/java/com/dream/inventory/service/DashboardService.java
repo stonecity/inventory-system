@@ -1,5 +1,6 @@
 package com.dream.inventory.service;
 
+import com.dream.inventory.common.TimeZones;
 import com.dream.inventory.dto.dashboard.DashboardSummaryVO;
 import com.dream.inventory.dto.dashboard.TopSkuVO;
 import com.dream.inventory.dto.dashboard.TrendPointVO;
@@ -15,7 +16,6 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -57,7 +57,7 @@ public class DashboardService {
         int d = days <= 0 ? 30 : Math.min(days, 90);
         Instant from = Instant.now().minus(d, ChronoUnit.DAYS);
         Map<LocalDate, TrendPointVO> map = new LinkedHashMap<>();
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate today = LocalDate.now(TimeZones.ZONE);
         for (int i = d - 1; i >= 0; i--) {
             LocalDate date = today.minusDays(i);
             map.put(date, TrendPointVO.builder().date(date.toString()).inboundQty(0).outboundQty(0).build());
