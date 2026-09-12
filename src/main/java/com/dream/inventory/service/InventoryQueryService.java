@@ -4,6 +4,7 @@ import com.dream.inventory.common.BizException;
 import com.dream.inventory.common.CsvUtils;
 import com.dream.inventory.common.ErrorCode;
 import com.dream.inventory.common.PageResult;
+import com.dream.inventory.common.TimeZones;
 import com.dream.inventory.dto.inventory.InventoryLogVO;
 import com.dream.inventory.dto.inventory.InventoryVO;
 import com.dream.inventory.entity.Inventory;
@@ -91,7 +92,7 @@ public class InventoryQueryService {
                 "在库前", "在库后", "可用前", "可用后", "单据号", "traceId", "备注")).append('\n');
         for (InventoryLogVO log : page.getItems()) {
             sb.append(CsvUtils.row(
-                    log.getOperatedAt(), log.getSkuCode(),
+                    TimeZones.format(log.getOperatedAt()), log.getSkuCode(),
                     log.getWarehouseName() != null ? log.getWarehouseName() : log.getWarehouseId(),
                     log.getChangeType(), log.getDeltaQty(),
                     log.getOnHandBefore(), log.getOnHandAfter(),
